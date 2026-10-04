@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FocusGuard — Study with intention</title>
+  <meta name="description" content="FocusGuard is a calm study productivity app that helps you focus, track your progress and grow your own world." />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
+
+  <!-- Favicon (inline SVG so no extra asset needed yet) -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23150d0e'/%3E%3Cpath d='M16 6c4 4 5 8 5 11a5 5 0 0 1-10 0c0-3 1-7 5-11z' fill='%23d8434a'/%3E%3C/svg%3E" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Decorative background layers (pure CSS shapes, no images) -->
+  <div class="bg-layers" aria-hidden="true">
+    <span class="bg-orb bg-orb--1"></span>
+    <span class="bg-orb bg-orb--2"></span>
+    <span class="bg-grain"></span>
+  </div>
+
+  <div class="app-shell">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28">
+            <path d="M16 4c4.5 4.6 6 9 6 12.5A6 6 0 0 1 10 16.5C10 13 11.5 8.6 16 4z" fill="currentColor"/>
+            <rect x="15" y="22" width="2" height="6" rx="1" fill="currentColor" opacity="0.55"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <strong>FocusGuard</strong>
+          <small>Study with intention</small>
+        </span>
+      </div>
+
+      <nav class="nav" aria-label="Primary">
+        <button class="nav__item is-active" data-view="dashboard">
+          <span class="nav__icon" aria-hidden="true">◧</span>
+          <span class="nav__label">Dashboard</span>
+        </button>
+        <button class="nav__item" data-view="session">
+          <span class="nav__icon" aria-hidden="true">◷</span>
+          <span class="nav__label">Study Session</span>
+        </button>
+        <button class="nav__item" data-view="world">
+          <span class="nav__icon" aria-hidden="true">✦</span>
+          <span class="nav__label">My World</span>
+        </button>
+        <button class="nav__item" data-view="analytics">
+          <span class="nav__icon" aria-hidden="true">▤</span>
+          <span class="nav__label">Analytics</span>
+        </button>
+        <button class="nav__item" data-view="history">
+          <span class="nav__icon" aria-hidden="true">↺</span>
+          <span class="nav__label">History</span>
+        </button>
+        <button class="nav__item" data-view="settings">
+          <span class="nav__icon" aria-hidden="true">⚙</span>
+          <span class="nav__label">Settings</span>
+        </button>
+      </nav>
+
+      <div class="sidebar__footer">
+        <div class="streak-chip">
+          <span class="streak-chip__icon" aria-hidden="true">🔥</span>
+          <span><strong>0</strong> day streak</span>
+        </div>
+        <p class="sidebar__note">Phase 4 · Camera foundation</p>
+      </div>
+    </aside>
+
+    <!-- Backdrop for the mobile sidebar -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+
+    <!-- ============ MAIN ============ -->
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open navigation" aria-expanded="false">
+          <span aria-hidden="true">☰</span>
+        </button>
+
+        <div class="topbar__title">
+          <h1 id="viewTitle">Dashboard</h1>
+          <p id="viewSubtitle">Your focus at a glance</p>
+        </div>
+
+        <div class="topbar__meta">
+          <!-- Real-world clock — owned by js/clock.js, never by timer.js -->
+          <div class="clock" id="liveClock">
+            <span class="clock__time" data-clock-time>--:--:--</span>
+            <span class="clock__date" data-clock-date>—</span>
+          </div>
+          <button class="icon-btn" type="button" data-focus-open aria-label="Enter Focus Mode" title="Focus Mode">
+            <span aria-hidden="true">◉</span>
+          </button>
+          <button class="icon-btn" type="button" data-fullscreen-toggle aria-label="Enter full screen" title="Full screen">
+            <span aria-hidden="true" data-fullscreen-icon>⛶</span>
+          </button>
+          <div class="avatar" title="Guest user">G</div>
+        </div>
+      </header>
+
+      <!-- ---------- VIEW: DASHBOARD ---------- -->
+      <section class="view is-visible" id="view-dashboard">
+
+        <!-- Row 1: focus status + goal -->
+        <div class="grid grid--twelve">
+          <article class="card card--status span-5">
+            <div class="card__head">
+              <h2 class="card__title">Current focus status</h2>
+              <span class="pill pill--muted" data-timer-state>Idle</span>
+            </div>
+            <div class="focus-status">
+              <div class="focus-ring" aria-hidden="true">
+                <svg viewBox="0 0 120 120" width="120" height="120">
+                  <circle class="ring-track" cx="60" cy="60" r="52" />
+                  <circle class="ring-progress" id="focusRing" cx="60" cy="60" r="52" />
+                </svg>
+                <span class="focus-ring__value" id="focusPercent">0%</span>
+              </div>
+              <div class="focus-status__text">
+                <p class="focus-status__main" data-timer-status-main>No session running</p>
+                <p class="focus-status__hint" data-timer-status-hint>Start a session to begin tracking your focus.</p>
+                <div class="meter" role="img" aria-label="Focus level meter">
+                  <span class="meter__fill" id="focusMeterFill" style="width: 0%"></span>
+                </div>
+                <small class="muted">Focus meter fills from attention data, which arrives in a later phase.</small>
+              </div>
+            </div>
+          </article>
+
+          <article class="card span-4">
+            <div class="card__head">
+              <h2 class="card__title">Today's goal</h2>
+              <span class="pill pill--soft" id="goalPill">Goal: 2h 00m</span>
+            </div>
+            <p class="big-number"><span id="goalDone">0m</span> <span class="big-number__of">of 2h 00m</span></p>
+            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="goalProgressBar">
+              <span class="progress__fill" id="goalProgressFill" style="width: 0%"></span>
+            </div>
+            <p class="muted small" id="goalCaption">0% complete — keep going.</p>
+            <button class="btn btn--ghost" data-goto="session">Open study session →</button>
+          </article>
+
+          <article class="card card--stat span-3">
+            <h2 class="card__title">Focus Coins</h2>
+            <div class="stat-icon" aria-hidden="true">◈</div>
+            <p class="stat-value" id="coinValue">0</p>
+            <p class="muted small">Earned by focused minutes.</p>
+            <hr class="divider" />
+            <div class="mini-row">
+              <span class="muted small">Today</span>
+              <strong id="coinToday">+0</strong>
+            </div>
+          </article>
+        </div>
+
+        <!-- Row 2: stats strip -->
+        <div class="grid grid--stats">
+          <article class="card card--stat">
+            <h3 class="card__title">Today's focused time</h3>
+            <p class="stat-value" id="statFocused">0m</p>
+            <p class="muted small">Placeholder data</p>
+          </article>
+          <article class="card card--stat">
+            <h3 class="card__title">Sessions today</h3>
+            <p class="stat-value" id="statSessions">0</p>
+            <p class="muted small">Placeholder data</p>
+          </article>
+          <article class="card card--stat">
+            <h3 class="card__title">Longest focus</h3>
+            <p class="stat-value" id="statLongest">0m</p>
+            <p class="muted small">Placeholder data</p>
+          </article>
+          <article class="card card--stat">
+            <h3 class="card__title">Weekly average</h3>
+            <p class="stat-value" id="statAverage">0m</p>
+            <p class="muted small">Placeholder data</p>
+          </article>
+        </div>
+
+        <!-- Row 3: timer + camera + world -->
+        <div class="grid grid--twelve">
+          <article class="card span-4">
+            <div class="card__head">
+              <h2 class="card__title">Pomodoro timer</h2>
+              <span class="pill pill--muted" data-timer-state>Idle</span>
+            </div>
+            <div class="timer">
+              <p class="timer__time" data-timer-display>25:00</p>
+              <div class="hourglass-wrap" data-hourglass-slot></div>
+              <div class="timer__modes" role="status" aria-label="Current timer period">
+                <span class="mode-chip" data-timer-mode-chip="focus">Focus</span>
+                <span class="mode-chip" data-timer-mode-chip="shortBreak">Short break</span>
+                <span class="mode-chip" data-timer-mode-chip="longBreak">Long break</span>
+              </div>
+              <div class="timer__actions">
+                <button class="btn btn--primary" data-timer-toggle>Start</button>
+                <button class="btn btn--ghost" data-timer-action="reset">Reset</button>
+                <button class="btn btn--ghost" data-timer-action="skip">Skip</button>
+                <button class="btn btn--ghost" type="button" data-focus-open>Focus</button>
+              </div>
+              <small class="muted">Completed pomodoros: <strong data-timer-count>0</strong></small>
+            </div>
+          </article>
+
+          <article class="card span-4">
+            <div class="card__head">
+              <h2 class="card__title">Camera monitoring</h2>
+              <span class="pill pill--muted" data-camera-status-pill>Camera Off</span>
+            </div>
+
+            <div class="cam" data-camera-panel data-state="off">
+              <video class="cam__video" data-camera-video autoplay playsinline muted></video>
+              <div class="cam__overlay">
+                <span class="cam__icon" aria-hidden="true">▣</span>
+                <p data-camera-overlay-text>Camera is off</p>
+              </div>
+              <span class="cam__dot" aria-hidden="true"></span>
+            </div>
+
+            <div class="cam__actions">
+              <button class="btn btn--primary btn--sm" type="button" data-camera-action="start">Start camera</button>
+              <button class="btn btn--ghost btn--sm" type="button" data-camera-action="stop" disabled>Stop camera</button>
+            </div>
+
+            <p class="cam__status" data-camera-status role="status">Camera Off</p>
+
+            <p class="cam__face" data-face-status data-face-state="off" role="status">
+              <span class="cam__face-dot" aria-hidden="true"></span>
+              <span data-face-status-text>Camera Off</span>
+            </p>
+            <p class="cam__face-note" data-face-note>Face detection is off.</p>
+
+            <ul class="cam__privacy">
+              <li>Camera processing happens locally in your browser.</li>
+              <li>Webcam frames are not uploaded.</li>
+              <li>Face detection runs on your device (MediaPipe). Frames never leave the browser.</li>
+            </ul>
+
+            <p class="cam__session" data-camera-session-hint>Start a study session to make monitoring available.</p>
+          </article>
+
+          <article class="card span-4">
+            <div class="card__head">
+              <h2 class="card__title">My World</h2>
+              <span class="pill pill--soft">Level 1</span>
+            </div>
+            <div class="world-preview" aria-label="Preview of future personal world">
+              <span class="world-preview__hill world-preview__hill--back"></span>
+              <span class="world-preview__hill world-preview__hill--front"></span>
+              <span class="world-preview__tree" style="left: 24%"></span>
+              <span class="world-preview__tree world-preview__tree--small" style="left: 62%"></span>
+              <span class="world-preview__sun" aria-hidden="true"></span>
+              <span class="world-preview__locked">Preview locked · Phase 4</span>
+            </div>
+            <p class="muted small">Your world grows as you study. Building tools unlock later.</p>
+            <button class="btn btn--ghost" data-goto="world">Visit My World →</button>
+          </article>
+        </div>
+
+        <!-- Row 4: task + recent sessions -->
+        <div class="grid grid--twelve">
+          <article class="card span-5">
+            <div class="card__head">
+              <h2 class="card__title">Current study session</h2>
+              <span class="pill pill--muted" data-session-status>No session</span>
+            </div>
+            <p class="session-current__subject" data-session-current-subject>No active session</p>
+            <p class="session-current__goal" data-session-current-goal>Start a study session to set your subject and goal.</p>
+            <div class="session-current__meta">
+              <span class="muted small" data-session-current-meta>—</span>
+              <span class="muted small">Pomodoros: <strong data-session-current-pomodoros>0</strong></span>
+            </div>
+            <button class="btn btn--ghost" data-goto="session">Open study session →</button>
+          </article>
+
+          <article class="card span-7">
+            <div class="card__head">
+              <h2 class="card__title">Recent sessions</h2>
+              <button class="btn btn--ghost btn--sm" data-goto="history">View all</button>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th>Duration</th>
+                    <th>Focus</th>
+                    <th>Pomodoros</th>
+                    <th>Status</th>
+                    <th>When</th>
+                  </tr>
+                </thead>
+                <tbody data-session-history>
+                  <tr class="table__empty">
+                    <td colspan="6">No sessions yet — your study history will appear here.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ---------- VIEW: STUDY SESSION ---------- -->
+      <section class="view" id="view-session">
+        <!-- Start a session, or watch the one that is running -->
+        <div class="grid grid--twelve">
+          <article class="card span-12">
+            <div class="card__head">
+              <h2 class="card__title">Study session</h2>
+              <span class="pill pill--muted" data-session-status>No session</span>
+            </div>
+
+            <!-- Idle: the start form -->
+            <div data-session-idle>
+              <form class="session-form" data-session-form novalidate>
+                <label class="field session-form__field">
+                  <span class="field__label">Subject</span>
+                  <input class="field__input" type="text" maxlength="120"
+                         placeholder="e.g. Linear algebra" data-session-field="subject" />
+                </label>
+                <label class="field session-form__field">
+                  <span class="field__label">Study goal</span>
+                  <input class="field__input" type="text" maxlength="120"
+                         placeholder="e.g. Finish chapter 4 exercises" data-session-field="goal" />
+                </label>
+                <button class="btn btn--primary session-form__submit" type="submit">Start session</button>
+              </form>
+              <p class="form-error" data-session-form-error hidden></p>
+              <p class="muted small">
+                The Pomodoro timer below is attached to the session, so every finished
+                focus block counts towards it.
+              </p>
+            </div>
+
+            <!-- Running: live session details -->
+            <div data-session-active hidden>
+              <div class="session-live">
+                <div class="session-live__head">
+                  <p class="session-live__subject" data-session-subject>Untitled session</p>
+                  <p class="muted small" data-session-goal>No goal set</p>
+                </div>
+                <p class="session-live__elapsed" data-session-elapsed>00:00</p>
+              </div>
+
+              <div class="session-stats">
+                <div class="session-stat">
+                  <span class="session-stat__label">Active time</span>
+                  <strong data-session-active-time>0s</strong>
+                </div>
+                <div class="session-stat">
+                  <span class="session-stat__label">Break time</span>
+                  <strong data-session-break-time>0s</strong>
+                </div>
+                <div class="session-stat">
+                  <span class="session-stat__label">Pomodoros</span>
+                  <strong data-session-pomodoros>0</strong>
+                </div>
+                <div class="session-stat">
+                  <span class="session-stat__label">Focused time</span>
+                  <strong class="muted">Pending</strong>
+                </div>
+              </div>
+
+              <div class="session-live__actions">
+                <button class="btn btn--primary" data-session-pause>Pause session</button>
+                <button class="btn btn--ghost" data-session-end>End session</button>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid grid--twelve">
+          <article class="card span-8 timer-panel">
+            <div class="card__head">
+              <h2 class="card__title">Study Session</h2>
+              <span class="pill pill--muted" data-timer-state>Idle</span>
+            </div>
+
+            <p class="timer-mode">
+              Current period: <strong data-timer-mode-text>Focus</strong>
+            </p>
+
+            <p class="timer__time timer__time--lg" data-timer-display>25:00</p>
+
+            <div class="hourglass-wrap" data-hourglass-slot></div>
+
+            <div class="progress timer__progress" role="progressbar" aria-label="Current period progress">
+              <span class="progress__fill" data-timer-progress style="width: 0%"></span>
+            </div>
+
+            <div class="timer__modes" role="status" aria-label="Current timer period">
+              <span class="mode-chip" data-timer-mode-chip="focus">Focus</span>
+              <span class="mode-chip" data-timer-mode-chip="shortBreak">Short break</span>
+              <span class="mode-chip" data-timer-mode-chip="longBreak">Long break</span>
+            </div>
+
+            <div class="timer__actions">
+              <button class="btn btn--primary" data-timer-toggle>Start</button>
+              <button class="btn btn--ghost" data-timer-action="reset">Reset</button>
+              <button class="btn btn--ghost" data-timer-action="skip">Skip session</button>
+              <button class="btn btn--ghost" type="button" data-focus-open>Focus Mode</button>
+            </div>
+
+            <div class="pomodoro-count">
+              <span class="pomodoro-count__icon" aria-hidden="true">○</span>
+              <span>Completed pomodoros today</span>
+              <strong data-timer-count>0</strong>
+            </div>
+
+            <p class="muted small">
+              A focus block is followed by a short break, and every fourth focus block
+              earns a long break. The next period starts on its own.
+            </p>
+          </article>
+
+          <article class="card span-4">
+            <h3 class="card__title">Timer settings</h3>
+            <p class="muted small">Changes apply to the next period.</p>
+
+            <div class="settings-grid">
+              <label class="field">
+                <span class="field__label">Focus duration (min)</span>
+                <input class="field__input field__input--num" type="number" min="1" max="180"
+                       step="1" value="25" data-timer-setting="focus" />
+              </label>
+              <label class="field">
+                <span class="field__label">Short break (min)</span>
+                <input class="field__input field__input--num" type="number" min="1" max="180"
+                       step="1" value="5" data-timer-setting="shortBreak" />
+              </label>
+              <label class="field">
+                <span class="field__label">Long break (min)</span>
+                <input class="field__input field__input--num" type="number" min="1" max="180"
+                       step="1" value="15" data-timer-setting="longBreak" />
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <span>Auto-start the next period</span>
+              <input type="checkbox" class="switch" data-timer-setting="autoStartNext" checked />
+            </div>
+            <div class="setting-row">
+              <span>Notification sound</span>
+              <input type="checkbox" class="switch" data-timer-setting="sound" checked />
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ---------- VIEW: MY WORLD ---------- -->
+      <section class="view" id="view-world">
+        <div class="grid grid--twelve">
+          <article class="card span-8">
+            <div class="card__head">
+              <h2 class="card__title">My World</h2>
+              <span class="pill pill--soft">Phase 4</span>
+            </div>
+            <p class="lead">A personal space that grows from the time you spend focused.</p>
+            <div class="placeholder-block placeholder-block--tall">
+              <p>World building, decorations and progression unlock in a later phase.</p>
+            </div>
+          </article>
+          <article class="card span-4">
+            <h3 class="card__title">Planned features</h3>
+            <ul class="feature-list">
+              <li>Growable scenery &amp; items</li>
+              <li>Coin-purchased decorations</li>
+              <li>Customisable layout</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <!-- ---------- VIEW: ANALYTICS ---------- -->
+      <section class="view" id="view-analytics">
+        <div class="grid grid--twelve">
+          <article class="card span-12">
+            <div class="card__head">
+              <h2 class="card__title">Analytics</h2>
+              <span class="pill pill--soft">Phase 3</span>
+            </div>
+            <p class="lead">Understand your focus patterns over days, weeks and months.</p>
+            <div class="placeholder-block placeholder-block--tall">
+              <p>Charts for focus time, streak trends and task breakdowns appear here.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ---------- VIEW: HISTORY ---------- -->
+      <section class="view" id="view-history">
+        <div class="grid grid--twelve">
+          <article class="card span-12">
+            <div class="card__head">
+              <h2 class="card__title">History</h2>
+              <span class="pill pill--soft">In memory</span>
+            </div>
+            <p class="lead">Every finished study session, kept in memory for this browser tab.</p>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th>Duration</th>
+                    <th>Focus</th>
+                    <th>Pomodoros</th>
+                    <th>Status</th>
+                    <th>When</th>
+                  </tr>
+                </thead>
+                <tbody data-session-history>
+                  <tr class="table__empty">
+                    <td colspan="6">No sessions recorded yet. Completed sessions will be listed here.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="muted small">
+              <strong data-session-history-count>0</strong> session(s) stored in memory for this tab.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ---------- VIEW: SETTINGS ---------- -->
+      <section class="view" id="view-settings">
+        <div class="grid grid--twelve">
+          <article class="card span-6">
+            <h2 class="card__title">Appearance</h2>
+            <p class="muted small">Theme options will respect your system preference by default.</p>
+            <div class="setting-row">
+              <span>Theme</span>
+              <span class="pill pill--muted">Dark red</span>
+            </div>
+            <div class="setting-row">
+              <span>Reduce motion</span>
+              <span class="pill pill--muted">System</span>
+            </div>
+          </article>
+          <article class="card span-6">
+            <h2 class="card__title">Focus defaults</h2>
+            <p class="muted small">Shared with the Pomodoro timer in Study Session.</p>
+            <div class="setting-row">
+              <span>Focus length (min)</span>
+              <input class="field__input field__input--num" type="number" min="1" max="180"
+                     step="1" value="25" data-timer-setting="focus" />
+            </div>
+            <div class="setting-row">
+              <span>Short break (min)</span>
+              <input class="field__input field__input--num" type="number" min="1" max="180"
+                     step="1" value="5" data-timer-setting="shortBreak" />
+            </div>
+            <div class="setting-row">
+              <span>Long break (min)</span>
+              <input class="field__input field__input--num" type="number" min="1" max="180"
+                     step="1" value="15" data-timer-setting="longBreak" />
+            </div>
+            <div class="setting-row">
+              <span>Daily goal</span>
+              <span class="pill pill--muted">2 hours</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <footer class="app-footer">
+        <span>FocusGuard · Phase 4 · Interface &amp; camera foundation</span>
+        <span class="muted">Static frontend — no backend, no tracking.</span>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Focus Mode: a distraction-minimised study screen ------------------- -->
+  <div class="focus-mode" id="focusMode" data-focus-mode hidden>
+    <div class="focus-mode__bar">
+      <span class="pill pill--soft">Focus Mode</span>
+
+      <div class="focus-mode__clock">
+        <span class="focus-mode__time" data-clock-time>--:--:--</span>
+        <span class="focus-mode__date" data-clock-date>—</span>
+      </div>
+
+      <div class="focus-mode__bar-actions">
+        <button class="btn btn--ghost btn--sm" type="button" data-focus-exit>Exit Focus Mode</button>
+        <button class="btn btn--ghost btn--sm" type="button" data-fullscreen-toggle>
+          <span aria-hidden="true" data-fullscreen-icon>⛶</span>
+          <span data-fullscreen-text>Full screen</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="focus-mode__stage">
+      <div class="focus-mode__main">
+        <div class="focus-mode__session">
+          <p class="focus-mode__subject" data-session-current-subject>No active session</p>
+          <p class="focus-mode__goal" data-session-current-goal>Start a study session to set your subject and goal.</p>
+        </div>
+
+        <div class="focus-mode__status">
+          <span class="status-tag">Session
+            <span class="pill pill--muted" data-session-status>No session</span>
+          </span>
+          <span class="status-tag">Timer
+            <span class="pill pill--muted" data-timer-state>Idle</span>
+          </span>
+          <span class="status-tag">Period
+            <span class="pill pill--muted" data-timer-mode-text>Focus</span>
+          </span>
+        </div>
+
+        <p class="timer__time focus-mode__countdown" data-timer-display>25:00</p>
+
+        <div class="hourglass-wrap hourglass-wrap--lg" data-hourglass-slot></div>
+
+        <div class="progress focus-mode__progress" role="progressbar" aria-label="Current period progress">
+          <span class="progress__fill" data-timer-progress style="width: 0%"></span>
+        </div>
+
+        <div class="timer__modes" role="status" aria-label="Current timer period">
+          <span class="mode-chip" data-timer-mode-chip="focus">Focus</span>
+          <span class="mode-chip" data-timer-mode-chip="shortBreak">Short break</span>
+          <span class="mode-chip" data-timer-mode-chip="longBreak">Long break</span>
+        </div>
+
+        <p class="focus-status__main" data-timer-status-main>No session running</p>
+        <p class="focus-status__hint" data-timer-status-hint>Start a session to begin tracking your focus.</p>
+
+        <div class="timer__actions">
+          <button class="btn btn--primary" type="button" data-timer-toggle>Start</button>
+          <button class="btn btn--ghost" type="button" data-session-pause>Pause session</button>
+          <button class="btn btn--ghost" type="button" data-session-end>End session</button>
+        </div>
+
+        <p class="muted small">Completed pomodoros: <strong data-timer-count>0</strong></p>
+      </div>
+
+      <aside class="focus-mode__side">
+        <div class="cam cam--compact" data-camera-panel data-state="off">
+          <video class="cam__video" data-camera-video autoplay playsinline muted></video>
+          <div class="cam__overlay">
+            <span class="cam__icon" aria-hidden="true">▣</span>
+            <p data-camera-overlay-text>Camera is off</p>
+          </div>
+          <span class="cam__dot" aria-hidden="true"></span>
+        </div>
+
+        <div class="cam__actions">
+          <button class="btn btn--primary btn--sm" type="button" data-camera-action="start">Start camera</button>
+          <button class="btn btn--ghost btn--sm" type="button" data-camera-action="stop" disabled>Stop camera</button>
+        </div>
+
+        <p class="cam__status" data-camera-status role="status">Camera Off</p>
+
+        <p class="cam__face" data-face-status data-face-state="off" role="status">
+          <span class="cam__face-dot" aria-hidden="true"></span>
+          <span data-face-status-text>Camera Off</span>
+        </p>
+        <p class="cam__face-note" data-face-note>Face detection is off.</p>
+
+        <p class="cam__session" data-camera-session-hint>Start a study session to make monitoring available.</p>
+
+        <ul class="cam__privacy">
+          <li>Camera processing happens locally in your browser.</li>
+          <li>Webcam frames are not uploaded.</li>
+          <li>Face detection runs on your device (MediaPipe). Frames never leave the browser.</li>
+        </ul>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Session summary dialog (shown when a session ends) -->
+  <div class="modal" data-session-summary hidden role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
+    <div class="modal__card">
+      <div class="card__head">
+        <h2 class="card__title" id="summaryTitle">Session summary</h2>
+        <span class="pill pill--soft" data-summary="status">Completed</span>
+      </div>
+
+      <dl class="summary-list">
+        <div class="summary-list__row"><dt>Subject</dt><dd data-summary="subject">—</dd></div>
+        <div class="summary-list__row"><dt>Goal</dt><dd data-summary="goal">—</dd></div>
+        <div class="summary-list__row"><dt>Start time</dt><dd data-summary="start">—</dd></div>
+        <div class="summary-list__row"><dt>End time</dt><dd data-summary="end">—</dd></div>
+        <div class="summary-list__row"><dt>Total elapsed</dt><dd data-summary="elapsed">—</dd></div>
+        <div class="summary-list__row"><dt>Active time</dt><dd data-summary="active">—</dd></div>
+        <div class="summary-list__row"><dt>Paused time</dt><dd data-summary="paused">—</dd></div>
+        <div class="summary-list__row"><dt>Break time</dt><dd data-summary="break">—</dd></div>
+        <div class="summary-list__row"><dt>Focused time</dt><dd data-summary="focus">—</dd></div>
+        <div class="summary-list__row"><dt>Pomodoros</dt><dd data-summary="pomodoros">0</dd></div>
+      </dl>
+
+      <div class="modal__actions">
+        <button class="btn btn--primary" data-summary-close>Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logic first, then each UI controller, then the app shell. -->
+  <script src="js/timer.js" defer></script>
+  <script src="js/timer-ui.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/session-ui.js" defer></script>
+  <script src="js/clock.js" defer></script>
+  <script src="js/camera.js" defer></script>
+  <script src="js/faceDetection.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
