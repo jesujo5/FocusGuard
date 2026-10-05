@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
 
   <!-- Favicon (inline SVG so no extra asset needed yet) -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2315122a'/%3E%3Cpath d='M16 6c4 4 5 8 5 11a5 5 0 0 1-10 0c0-3 1-7 5-11z' fill='%237b6cf6'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231c0e10'/%3E%3Cpath d='M16 6c4 4 5 8 5 11a5 5 0 0 1-10 0c0-3 1-7 5-11z' fill='%23e5484d'/%3E%3C/svg%3E" />
 
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -236,6 +236,10 @@
             <p class="cam__face" data-face-status data-face-state="off" role="status">
               <span class="cam__face-dot" aria-hidden="true"></span>
               <span data-face-status-text>Camera Off</span>
+            </p>
+            <p class="cam__face cam__face--head" data-head-status data-head-state="unknown" role="status">
+              <span class="cam__face-dot" aria-hidden="true"></span>
+              <span>Head direction: <strong data-head-status-text>Unknown</strong></span>
             </p>
             <p class="cam__face-note" data-face-note>Face detection is off.</p>
 
@@ -665,6 +669,10 @@
           <span class="cam__face-dot" aria-hidden="true"></span>
           <span data-face-status-text>Camera Off</span>
         </p>
+        <p class="cam__face cam__face--head" data-head-status data-head-state="unknown" role="status">
+          <span class="cam__face-dot" aria-hidden="true"></span>
+          <span>Head direction: <strong data-head-status-text>Unknown</strong></span>
+        </p>
         <p class="cam__face-note" data-face-note>Face detection is off.</p>
 
         <p class="cam__session" data-camera-session-hint>Start a study session to make monitoring available.</p>
@@ -713,6 +721,7 @@
   <script src="js/clock.js" defer></script>
   <script src="js/camera.js" defer></script>
   <script src="js/faceDetection.js" defer></script>
+  <script src="js/attention.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

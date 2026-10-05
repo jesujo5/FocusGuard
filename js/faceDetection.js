@@ -1,10 +1,16 @@
 /* =====================================================================
    FocusGuard — js/faceDetection.js
-   Phase 5: real, on-device face presence detection.
+   Phase 5: real, on-device face presence detection (public API kept).
+   Phase 6: the underlying model is now MediaPipe Tasks Vision
+            "FaceLandmarker" (BlazeFace short-range detector + 478-point
+            face landmarks + an optional facial transformation matrix).
+            Presence still works exactly as before; the extra landmark
+            and matrix data is exposed to js/attention.js, which turns it
+            into an approximate head direction.
 
    PRIVACY — what this file actually does:
-     * It loads a pretrained face detector into this browser tab
-       (MediaPipe Tasks Vision "FaceDetector" / BlazeFace short-range).
+     * It loads a pretrained face landmark model into this browser tab
+       (MediaPipe Tasks Vision "FaceLandmarker").
        The library is fetched once from a public CDN and the model file
        once from Google's public model host; after that the browser
        caches them and everything runs offline.
@@ -19,16 +25,17 @@
        FACE_PRESENT  →  "Face Detected"
        FACE_MISSING  →  "Face Not Detected"
 
-   It does NOT know which way the head is turned, whether the user is
-   looking at the screen, or whether they are focused. Orientation and
-   attention arrive in a later phase.
+   It does NOT know whether the user is looking at the screen or whether
+   they are focused. It only reports presence and hands raw, local
+   landmarks to js/attention.js, which estimates head direction.
 
    ---- Pipeline --------------------------------------------------------
      js/camera.js           webcam lifecycle → MediaStream
          ↓  attaches the stream to [data-camera-video]
      js/faceDetection.js    ← this file. Reads frames locally at ~5 Hz
-         ↓  FACE_PRESENT | FACE_MISSING
-     (later: attention.js → distraction.js → focusEngine.js)
+         ↓  FACE_PRESENT | FACE_MISSING  +  landmarks / pose matrix
+     js/attention.js        → FORWARD | LEFT | RIGHT | UP | DOWN
+     (later: distraction.js → focusEngine.js)
 
    ---- DOM contract ----------------------------------------------------
      [data-camera-video]       frames are read from these <video>s
@@ -43,7 +50,12 @@
 
    Console:
      FocusGuard.faceDetection.getState()
+     FocusGuard.faceDetection.getSample()   // landmarks + pose matrix
      FocusGuard.faceDetection.start() / .stop() / .detect(video)
+
+   Events:
+     on('change', fn)   the status snapshot shown by the UI
+     on('sample', fn)   one per processed frame: { present, landmarks, matrix }
    ===================================================================== */
 
 (function (global) {
@@ -58,10 +70,12 @@
   var MODULE_URL = TASKS_VISION_BASE + '/vision_bundle.mjs';
   var WASM_PATH = TASKS_VISION_BASE + '/wasm';
   var MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/' +
-    'face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+    'face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
   var DETECT_INTERVAL_MS = 200;   // ≈5 detections per second — smooth and light
   var MIN_DETECTION_CONFIDENCE = 0.5;
+  var MIN_PRESENCE_CONFIDENCE = 0.5;
+  var MIN_TRACKING_CONFIDENCE = 0.5;
   var PRESENT_CONFIRM = 2;        // consecutive frames before "detected"
   var MISSING_CONFIRM = 3;        // consecutive frames before "not detected"
   var MAX_INFERENCE_ERRORS = 3;   // then the layer gives up (the app keeps going)
@@ -110,6 +124,7 @@
   var detector = null;
   var detectorPromise = null;  // in-flight init, so we never build it twice
   var cpuFallbackTried = false;
+  var lastSample = null;       // { at, present, landmarks, matrix }
 
   var presentStreak = 0;
   var missingStreak = 0;
@@ -118,7 +133,7 @@
   var lastVerdictAt = 0;
   var lastSignature = '';
 
-  var handlers = { change: [] };
+  var handlers = { change: [], sample: [] };
 
   /* ---------- Tiny helpers ----------------------------------------- */
 
@@ -198,12 +213,17 @@
     var options = {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: delegate },
       runningMode: 'VIDEO',            // frames come from a <video> element
-      minDetectionConfidence: MIN_DETECTION_CONFIDENCE,
       numFaces: 1,                     // the person in front of the screen
+      minFaceDetectionConfidence: MIN_DETECTION_CONFIDENCE,
+      minFacePresenceConfidence: MIN_PRESENCE_CONFIDENCE,
+      minTrackingConfidence: MIN_TRACKING_CONFIDENCE,
+      outputFaceBlendshapes: false,
+      // The 4x4 head-pose matrix js/attention.js reads its angles from.
+      outputFacialTransformationMatrixes: true,
     };
     // The web build returns a promise; Promise.resolve also covers a
     // synchronous return, so both shapes work.
-    return Promise.resolve(vision.FaceDetector.createFromOptions(fileset, options));
+    return Promise.resolve(vision.FaceLandmarker.createFromOptions(fileset, options));
   }
 
   function describeError(error) {
@@ -257,7 +277,22 @@
   }
 
   function applyResult(result) {
-    var count = (result && result.detections) ? result.detections.length : 0;
+    var marks = (result && result.faceLandmarks) ? result.faceLandmarks : [];
+    var count = marks.length;
+    var matrix = null;
+    if (result && result.facialTransformationMatrixes &&
+        result.facialTransformationMatrixes.length > 0) {
+      matrix = result.facialTransformationMatrixes[0].data || null;
+    }
+
+    // One sample per processed frame: raw, local data for js/attention.js.
+    lastSample = {
+      at: Date.now(),
+      present: count > 0,
+      landmarks: count > 0 ? marks[0] : null,
+      matrix: count > 0 ? matrix : null,
+    };
+    emitSample(lastSample);
 
     if (count > 0) { presentStreak += 1; missingStreak = 0; }
     else { missingStreak += 1; presentStreak = 0; }
@@ -267,6 +302,10 @@
     if (presentStreak >= PRESENT_CONFIRM) commit(FACE.PRESENT, count);
     else if (missingStreak >= MISSING_CONFIRM) commit(FACE.MISSING, 0);
     else emit();  // first frames: still "Detecting Face"
+  }
+
+  function emitSample(sample) {
+    (handlers.sample || []).forEach(function (fn) { fn(sample); });
   }
 
   function commit(nextFace, count) {
@@ -352,6 +391,7 @@
     inferenceErrors = 0;
     face = FACE.UNKNOWN;      // a fresh camera session starts from scratch
     faceCount = 0;
+    lastSample = null;
     emit();
 
     return ensureModel().then(function (created) {
@@ -382,6 +422,7 @@
     face = FACE.UNKNOWN;
     faceCount = 0;
     lastVerdictAt = 0;
+    lastSample = null;
     emit();
   }
 
@@ -428,8 +469,13 @@
   }
 
   function summarize(result) {
-    var count = (result && result.detections) ? result.detections.length : 0;
+    var count = (result && result.faceLandmarks) ? result.faceLandmarks.length : 0;
     return { face: count > 0 ? FACE.PRESENT : FACE.MISSING, count: count, at: Date.now() };
+  }
+
+  /** The latest raw sample (landmarks + pose matrix) from the model. */
+  function getSample() {
+    return lastSample;
   }
 
   /* ---------- Status & rendering ------------------------------------ */
@@ -473,6 +519,9 @@
       isRunning: running,
       loopActive: loopHandle !== 0,
       isImplemented: true,
+      hasSample: lastSample !== null,
+      sampleAt: lastSample ? lastSample.at : 0,
+      matrixAvailable: !!(lastSample && lastSample.matrix),
       framesProcessed: framesProcessed,
       lastVerdictAt: lastVerdictAt,
       errorMessage: errorMessage,
@@ -566,6 +615,7 @@
     dispose: dispose,
     detect: detect,
     on: on,
+    getSample: getSample,
     getState: getState,
     render: render,
     pipeline: PIPELINE.slice(),

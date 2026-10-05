@@ -4,12 +4,13 @@ An AI-assisted study productivity app that combines a Pomodoro-style study timer
 study sessions, browser-based focus monitoring, detailed analytics, and a
 gamified personal world that grows from the time you actually spend focused.
 
-> **Status: Phase 5 — local face detection.**
+> **Status: Phase 6 — approximate head direction.**
 > Study sessions, the Pomodoro timer, the sand clock, the real-time clock,
-> Focus Mode, fullscreen, the webcam panel and an **on-device face presence
-> detector** are implemented.
-> Head orientation, attention/distraction scoring, Focus Coins, Supabase,
-> analytics and the world builder are **not** implemented yet.
+> Focus Mode, fullscreen, the webcam panel, an **on-device face presence
+> detector** (MediaPipe FaceLandmarker) and an **approximate head-direction
+> readout** are implemented.
+> Attention/distraction scoring, Focus Coins, Supabase, analytics and the
+> world builder are **not** implemented yet.
 
 ## Planned systems
 
@@ -19,8 +20,9 @@ gamified personal world that grows from the time you actually spend focused.
 | Study sessions | **Done** — subject, goal, elapsed/break time, pause/resume, summary, in-memory history |
 | Interface (theme, sand clock, clock, Focus Mode, fullscreen) | **Done** |
 | Camera monitoring | **Local preview + lifecycle done** — permission states, start/stop, privacy notes |
-| Face detection (presence only) | **Done** — on-device MediaPipe FaceDetector, ~5 fps, nothing uploaded |
-| Head orientation & attention | Not started (a later phase) |
+| Face detection (presence only) | **Done** — on-device MediaPipe FaceLandmarker, ~5 fps, nothing uploaded |
+| Head direction (approximate) | **Done** — Forward / Looking Left / Right / Up / Down, from local landmarks + smoothing |
+| Attention & distraction scoring | Not started (a later phase) |
 | Productivity history & analytics | History is live; analytics still a placeholder |
 | Gamified personal world | Preview only |
 
@@ -37,7 +39,8 @@ never reaches into another's state.
 | `js/session-ui.js` | Session form, live panel, dashboard mirror, summary dialog, history. |
 | `js/clock.js` | Real-world clock (hours, minutes, seconds + date). **Independent of `timer.js`.** |
 | `js/camera.js` | Webcam lifecycle: permission, start, stop, release. |
-| `js/faceDetection.js` | On-device face **presence** detection (MediaPipe FaceDetector). Follows `camera.js`; never uploads. |
+| `js/faceDetection.js` | On-device face **presence** detection (MediaPipe FaceLandmarker). Follows `camera.js`, exposes raw landmark/pose samples; never uploads. |
+| `js/attention.js` | Approximate **head direction** from those samples. No camera, no network, no loop of its own. |
 | `app.js` | Navigation, placeholder dashboard, Focus Mode, fullscreen. |
 
 ### How the pieces connect
@@ -57,6 +60,11 @@ camera.js   ──▶ every [data-camera-*] element
      │
      └── change event ──▶ faceDetection.js ──▶ FACE_PRESENT / FACE_MISSING
                                               ──▶ every [data-face-*] element
+                                  │
+                                  └── sample event ──▶ attention.js
+                                                       FORWARD / LEFT / RIGHT /
+                                                       UP / DOWN / FACE_MISSING
+                                                       ──▶ every [data-head-*] element
 ```
 
 ## The study session record
@@ -134,23 +142,31 @@ missing devices are reported in the panel instead of throwing. `stop()` stops
 every track and clears `srcObject`; the webcam is also released on `pagehide`,
 on `beforeunload`, and when a study session ends.
 
-## Face detection — presence only
+## Face landmarks — presence and head direction
 
-`js/faceDetection.js` answers exactly one question, locally: **is a face in
-frame?**
+`js/faceDetection.js` answers one question, locally: **is a face in frame?**
+It also hands the raw landmark and head-pose numbers to `js/attention.js`,
+which answers a second one: **roughly which way is the head turned?**
 
 | Piece | Choice |
 | --- | --- |
-| Model | MediaPipe Tasks Vision **FaceDetector** (BlazeFace short-range, ~230 KB) |
+| Model | MediaPipe Tasks Vision **FaceLandmarker** (BlazeFace short-range detector + 478-point face landmarks, ~3.8 MB) |
 | Library | `@mediapipe/tasks-vision` (pinned version, loaded once) |
 | Where it runs | This browser tab only — WebAssembly + WebGL |
 | Rate | ~5 detections/second (`DETECT_INTERVAL_MS = 200`), one `requestAnimationFrame` loop |
-| Threshold | `minDetectionConfidence: 0.5`, `numFaces: 1` |
+| Thresholds | `minFaceDetectionConfidence: 0.5`, `minFacePresenceConfidence: 0.5`, `minTrackingConfidence: 0.5`, `numFaces: 1` |
+| Extra output | `outputFacialTransformationMatrixes: true` — the 4x4 head-pose matrix attention.js reads |
 
 ```
 camera.js ──▶ <video data-camera-video> ──▶ faceDetection.js ──▶ face state
  getUserMedia      MediaStream                ~5 Hz, local      FACE_PRESENT
-                                                                FACE_MISSING
+                                              + landmarks /     FACE_MISSING
+                                                pose matrix
+                                                        │
+                                                        └──▶ attention.js
+                                                             FORWARD · LEFT ·
+                                                             RIGHT · UP · DOWN
+                                                             · FACE_MISSING
 ```
 
 | Status | Meaning |
@@ -180,28 +196,60 @@ Lifecycle rules:
   Pomodoro timer or the session.
 - If the model cannot load, the panel shows `Detection Error` and everything else
   (timer, sessions, clock, camera preview) continues normally.
+- `attention.js` does not run a second loop and never touches the camera or the
+  network: it only transforms the samples it is handed.
 
-Console: `FocusGuard.faceDetection.getState()` / `.start()` / `.stop()` /
-`.detect(video)` / `.on('change', fn)`.
+Console: `FocusGuard.faceDetection.getState()` / `.getSample()` / `.start()` /
+`.stop()` / `.detect(video)` / `.on('change', fn)` / `.on('sample', fn)`.
+
+## Head direction — approximate
+
+A small row under the face indicator shows the estimate:
+
+| State | Meaning |
+| --- | --- |
+| `Forward` | The head is within a few degrees of facing the screen |
+| `Looking Left` / `Looking Right` | The head is turned past the turn threshold |
+| `Looking Up` / `Looking Down` | The head is pitched past the turn threshold |
+| `Face Missing` | No face in frame, so no direction can be reported |
+| `Unknown` | Camera off, model loading, or no usable reading yet |
+
+How the estimate is made (all local):
+
+1. The model's facial transformation matrix gives the direction the face is
+   pointing (`yaw` = horizontal, `pitch` = vertical). If the matrix is missing,
+   a coarser landmark-ratio fallback (nose position relative to the eyes and the
+   face oval) is used instead.
+2. Both angles are smoothed with a rolling **median over 5 samples** (~1 s at
+   the 5 Hz rate).
+3. A direction is only reported when it clears the turn thresholds
+   (`yaw 18°`, `pitch 15°`); coming back to `Forward` needs `yaw 11° / pitch 9°`.
+   The gap is a dead zone that keeps the previous reading, and a change needs
+   **3 consecutive agreeing samples** before the row moves.
+
+Measured behaviour: an obvious turn shows up in about a second, small natural
+movements (a few degrees) never flicker the row, and no direction ever changes
+the timer, pauses a session or raises a warning.
+
+Console: `FocusGuard.attention.getState()` / `.getPose()`.
 
 ### Intentionally not implemented yet
 
-- Head orientation (left/right/up/down), attention estimation, distraction
-  detection, grace periods
+- Attention estimation, distraction detection, grace periods, warnings
 - Attention / focus score, focused-minutes accounting
 - Focus Coins, Supabase, authentication
 - World builder, analytics charts
 
-The wording stays honest on purpose: FocusGuard reports **"Face Detected"** or
-**"Face Not Detected"** — never "AI knows you are focused". Attention comes
-later, when orientation data exists.
+The wording stays honest on purpose: FocusGuard reports **"Face Detected"**,
+**"Face Not Detected"** and an approximate head direction — never "AI knows you
+are focused". A turned head is not proof of anything, and the interface says so.
 
 ## Project structure
 
 ```
 FocusGuard/
 ├── index.html            # App shell: sidebar, views, Focus Mode, summary dialog
-├── style.css             # Dark red/black theme, layout, components
+├── style.css             # Red/black dark theme, layout, components
 ├── app.js                # Navigation, Focus Mode, fullscreen, dashboard
 ├── js/
 │   ├── timer.js          # Pomodoro state machine (no DOM)
@@ -210,7 +258,8 @@ FocusGuard/
 │   ├── session-ui.js     # Session DOM, dashboard mirror, summary, history
 │   ├── clock.js          # Real-world clock (independent of timer.js)
 │   ├── camera.js         # Webcam lifecycle (local only)
-│   └── faceDetection.js  # On-device face presence detection (MediaPipe)
+│   ├── faceDetection.js  # On-device face presence + landmarks (MediaPipe)
+│   └── attention.js      # Approximate head direction from those landmarks
 ├── assets/
 │   ├── images/           # Reserved for artwork
 │   ├── icons/            # Reserved for icons
@@ -243,8 +292,10 @@ Then visit <http://localhost:5173>.
 
 ## Design notes
 
-- **Palette:** near-black backgrounds, deep red accents, light grey/white text,
-  subtle red glow on active states.
+- **Palette:** near-black backgrounds (`#0a0608` / `#1c0e10`), deep red
+  surfaces and accents (`#e5484d` / `#ff8f94`), light grey text (`#f3ecec`),
+  with a subtle red glow on active states. Amber (`#e0b46a`) is reserved for
+  warnings, so colour carries meaning.
 - **Interface:** rounded dark cards, generous spacing, one clear focal point per
   screen. No gratuitous gradients or animation.
 - **Visual identity:** the logo, "world" preview and all decorative shapes are
