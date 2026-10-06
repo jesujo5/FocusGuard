@@ -121,17 +121,24 @@
               <div class="focus-ring" aria-hidden="true">
                 <svg viewBox="0 0 120 120" width="120" height="120">
                   <circle class="ring-track" cx="60" cy="60" r="52" />
-                  <circle class="ring-progress" id="focusRing" cx="60" cy="60" r="52" />
+                  <circle class="ring-progress" id="focusRing" data-engine="dash-ring" cx="60" cy="60" r="52" />
                 </svg>
-                <span class="focus-ring__value" id="focusPercent">0%</span>
+                <span class="focus-ring__value" id="focusPercent" data-engine="dash-score">—</span>
               </div>
               <div class="focus-status__text">
                 <p class="focus-status__main" data-timer-status-main>No session running</p>
                 <p class="focus-status__hint" data-timer-status-hint>Start a session to begin tracking your focus.</p>
-                <div class="meter" role="img" aria-label="Focus level meter">
-                  <span class="meter__fill" id="focusMeterFill" style="width: 0%"></span>
+                <div class="meter" role="img" aria-label="Estimated focus score meter">
+                  <span class="meter__fill" id="focusMeterFill" data-engine="dash-meter" style="width: 0%"></span>
                 </div>
-                <small class="muted">Focus meter fills from attention data, which arrives in a later phase.</small>
+                <p class="engine-line">
+                  <span class="pill pill--soft" data-engine="dash-rating" data-rating="none">—</span>
+                  <small class="muted" data-engine="dash-score-caption">Estimated Focus Score · today</small>
+                </p>
+                <small class="muted">
+                  Estimated from screen-facing attention (camera signals). It is not a
+                  measure of how well you think.
+                </small>
               </div>
             </div>
           </article>
@@ -139,25 +146,26 @@
           <article class="card span-4">
             <div class="card__head">
               <h2 class="card__title">Today's goal</h2>
-              <span class="pill pill--soft" id="goalPill">Goal: 2h 00m</span>
+              <span class="pill pill--soft" id="goalPill" data-engine="goal-pill">Goal: 2h 00m</span>
             </div>
-            <p class="big-number"><span id="goalDone">0m</span> <span class="big-number__of">of 2h 00m</span></p>
-            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="goalProgressBar">
-              <span class="progress__fill" id="goalProgressFill" style="width: 0%"></span>
+            <p class="big-number"><span id="goalDone" data-engine="goal-done">0m</span> <span class="big-number__of" data-engine="goal-total">of 2h 00m</span></p>
+            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="goalProgressBar" data-engine="goal-bar">
+              <span class="progress__fill" id="goalProgressFill" data-engine="goal-fill" style="width: 0%"></span>
             </div>
-            <p class="muted small" id="goalCaption">0% complete — keep going.</p>
+            <p class="muted small" id="goalCaption" data-engine="goal-caption">No measured focus time yet today.</p>
             <button class="btn btn--ghost" data-goto="session">Open study session →</button>
           </article>
 
           <article class="card card--stat span-3">
             <h2 class="card__title">Focus Coins</h2>
             <div class="stat-icon" aria-hidden="true">◈</div>
-            <p class="stat-value" id="coinValue">0</p>
-            <p class="muted small">Earned by focused minutes.</p>
+            <p class="stat-value" id="coinValue" data-engine="dash-coins">0</p>
+            <p class="muted small">1 focused minute = 1 Focus Coin. Breaks, pauses and
+              distraction time never earn coins.</p>
             <hr class="divider" />
             <div class="mini-row">
               <span class="muted small">Today</span>
-              <strong id="coinToday">+0</strong>
+              <strong id="coinToday" data-engine="dash-coins-today">+0</strong>
             </div>
           </article>
         </div>
@@ -166,23 +174,23 @@
         <div class="grid grid--stats">
           <article class="card card--stat">
             <h3 class="card__title">Today's focused time</h3>
-            <p class="stat-value" id="statFocused">0m</p>
-            <p class="muted small">Placeholder data</p>
+            <p class="stat-value" id="statFocused" data-engine="dash-focused">0m</p>
+            <p class="muted small">Measured screen-facing time</p>
+          </article>
+          <article class="card card--stat">
+            <h3 class="card__title">Focus score today</h3>
+            <p class="stat-value" id="statScore" data-engine="dash-score-alt">—</p>
+            <p class="muted small" data-engine="dash-rating-alt">Not measured yet</p>
           </article>
           <article class="card card--stat">
             <h3 class="card__title">Sessions today</h3>
-            <p class="stat-value" id="statSessions">0</p>
-            <p class="muted small">Placeholder data</p>
+            <p class="stat-value" id="statSessions" data-engine="dash-sessions">0</p>
+            <p class="muted small">Finished in this tab</p>
           </article>
           <article class="card card--stat">
             <h3 class="card__title">Longest focus</h3>
-            <p class="stat-value" id="statLongest">0m</p>
-            <p class="muted small">Placeholder data</p>
-          </article>
-          <article class="card card--stat">
-            <h3 class="card__title">Weekly average</h3>
-            <p class="stat-value" id="statAverage">0m</p>
-            <p class="muted small">Placeholder data</p>
+            <p class="stat-value" id="statLongest" data-engine="dash-longest">0m</p>
+            <p class="muted small">Best session today</p>
           </article>
         </div>
 
@@ -241,6 +249,14 @@
               <span class="cam__face-dot" aria-hidden="true"></span>
               <span>Head direction: <strong data-head-status-text>Unknown</strong></span>
             </p>
+            <p class="cam__face cam__face--focus" data-focus-status data-focus-state="unknown"
+               data-focus-tracking="off" role="status" aria-live="polite">
+              <span class="cam__face-dot" aria-hidden="true"></span>
+              <span class="cam__face-body">
+                <span>Focus status: <strong data-focus-status-text>Detection unavailable</strong></span>
+                <span class="cam__face-detail" data-focus-status-detail hidden></span>
+              </span>
+            </p>
             <p class="cam__face-note" data-face-note>Face detection is off.</p>
 
             <ul class="cam__privacy">
@@ -277,7 +293,9 @@
               <h2 class="card__title">Current study session</h2>
               <span class="pill pill--muted" data-session-status>No session</span>
             </div>
+            <p class="muted small">Current subject</p>
             <p class="session-current__subject" data-session-current-subject>No active session</p>
+            <p class="muted small">Current study task</p>
             <p class="session-current__goal" data-session-current-goal>Start a study session to set your subject and goal.</p>
             <div class="session-current__meta">
               <span class="muted small" data-session-current-meta>—</span>
@@ -370,10 +388,31 @@
                   <strong data-session-pomodoros>0</strong>
                 </div>
                 <div class="session-stat">
-                  <span class="session-stat__label">Focused time</span>
-                  <strong class="muted">Pending</strong>
+                  <span class="session-stat__label">Focused</span>
+                  <strong data-engine="live-focused">0s</strong>
+                </div>
+                <div class="session-stat">
+                  <span class="session-stat__label">Distracted</span>
+                  <strong data-engine="live-distracted">0s</strong>
+                </div>
+                <div class="session-stat">
+                  <span class="session-stat__label">Distractions</span>
+                  <strong data-engine="live-distractions">0</strong>
+                </div>
+                <div class="session-stat">
+                  <span class="session-stat__label">Estimated focus score</span>
+                  <strong data-engine="live-score">—</strong>
+                </div>
+                <div class="session-stat">
+                  <span class="session-stat__label">Focus coins</span>
+                  <strong data-engine="live-coins">0</strong>
                 </div>
               </div>
+
+              <p class="muted small">
+                Measured while the session runs and the Pomodoro is not on a break or
+                paused. 1 focused minute = 1 Focus Coin.
+              </p>
 
               <div class="session-live__actions">
                 <button class="btn btn--primary" data-session-pause>Pause session</button>
@@ -573,6 +612,17 @@
               <span>Daily goal</span>
               <span class="pill pill--muted">2 hours</span>
             </div>
+            <div class="setting-row">
+              <span>Attention grace period (s)</span>
+              <input class="field__input field__input--num" type="number" min="2" max="15"
+                     step="1" value="5" data-distraction-setting="grace"
+                     aria-label="Attention grace period in seconds" />
+            </div>
+            <p class="muted small">
+              How long a glance away counts as “attention drifting” before FocusGuard
+              calls it distracted. Applies to the live camera status and the next
+              distraction record.
+            </p>
           </article>
         </div>
       </section>
@@ -619,6 +669,12 @@
           </span>
           <span class="status-tag">Period
             <span class="pill pill--muted" data-timer-mode-text>Focus</span>
+          </span>
+          <span class="status-tag">Focus score
+            <span class="pill pill--soft" data-engine="fm-score">—</span>
+          </span>
+          <span class="status-tag">Coins
+            <span class="pill pill--soft" data-engine="fm-coins">0</span>
           </span>
         </div>
 
@@ -673,6 +729,14 @@
           <span class="cam__face-dot" aria-hidden="true"></span>
           <span>Head direction: <strong data-head-status-text>Unknown</strong></span>
         </p>
+        <p class="cam__face cam__face--focus" data-focus-status data-focus-state="unknown"
+           data-focus-tracking="off" role="status" aria-live="polite">
+          <span class="cam__face-dot" aria-hidden="true"></span>
+          <span class="cam__face-body">
+            <span>Focus status: <strong data-focus-status-text>Detection unavailable</strong></span>
+            <span class="cam__face-detail" data-focus-status-detail hidden></span>
+          </span>
+        </p>
         <p class="cam__face-note" data-face-note>Face detection is off.</p>
 
         <p class="cam__session" data-camera-session-hint>Start a study session to make monitoring available.</p>
@@ -694,6 +758,15 @@
         <span class="pill pill--soft" data-summary="status">Completed</span>
       </div>
 
+      <div class="engine-score">
+        <p class="engine-score__value" data-summary="score">—</p>
+        <div class="engine-score__meta">
+          <span class="pill pill--soft" data-summary="rating" data-rating="none">—</span>
+          <p class="muted small">Estimated Focus Score — screen-facing attention,
+            not a measure of how well you think.</p>
+        </div>
+      </div>
+
       <dl class="summary-list">
         <div class="summary-list__row"><dt>Subject</dt><dd data-summary="subject">—</dd></div>
         <div class="summary-list__row"><dt>Goal</dt><dd data-summary="goal">—</dd></div>
@@ -704,7 +777,11 @@
         <div class="summary-list__row"><dt>Paused time</dt><dd data-summary="paused">—</dd></div>
         <div class="summary-list__row"><dt>Break time</dt><dd data-summary="break">—</dd></div>
         <div class="summary-list__row"><dt>Focused time</dt><dd data-summary="focus">—</dd></div>
+        <div class="summary-list__row"><dt>Distracted time</dt><dd data-summary="distracted">—</dd></div>
+        <div class="summary-list__row"><dt>Face missing</dt><dd data-summary="face-missing">—</dd></div>
+        <div class="summary-list__row"><dt>Distractions</dt><dd data-summary="distractions">0</dd></div>
         <div class="summary-list__row"><dt>Pomodoros</dt><dd data-summary="pomodoros">0</dd></div>
+        <div class="summary-list__row"><dt>Focus coins earned</dt><dd data-summary="coins">0</dd></div>
       </dl>
 
       <div class="modal__actions">
@@ -722,6 +799,8 @@
   <script src="js/camera.js" defer></script>
   <script src="js/faceDetection.js" defer></script>
   <script src="js/attention.js" defer></script>
+  <script src="js/distraction.js" defer></script>
+  <script src="js/focusEngine.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

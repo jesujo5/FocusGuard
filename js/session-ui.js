@@ -180,35 +180,61 @@
     renderHistory(state.history);
   }
 
+  /**
+   * One row per stored session. This is the table that used to empty
+   * itself on every refresh — since Phase 9 the records come from
+   * IndexedDB (and from the cloud once you are signed in).
+   *
+   * Columns: When · Subject (+ goal) · Duration · Focused (score/rating)
+   *          · Distractions · Pomodoros · Coins · Status
+   */
+  function historyRowHtml(record) {
+    var measured = record.measured === true && record.focusedDurationMs !== null;
+
+    var focusCell = !measured
+      ? '<span class="muted small">not measured</span>'
+      : formatDuration(record.focusedDurationMs) +
+        (record.focusScore === null || record.focusScore === undefined
+          ? ''
+          : '<br /><span class="muted small">Score ' + record.focusScore +
+            (record.focusRating ? ' · ' + escapeHtml(record.focusRating) : '') + '</span>');
+
+    var coins = record.focusCoinsEarned || 0;
+
+    return (
+      '<tr>' +
+        '<td><span class="nowrap">' + formatDateTime(record.startTime) + '</span></td>' +
+        '<td><strong>' + escapeHtml(record.subject) + '</strong>' +
+          (record.goal ? '<br /><span class="muted small">' + escapeHtml(record.goal) + '</span>' : '') +
+        '</td>' +
+        '<td>' + formatDuration(record.totalDurationMs) + '</td>' +
+        '<td>' + focusCell + '</td>' +
+        '<td>' + (record.distractionCount || 0) + '</td>' +
+        '<td>' + (record.pomodorosCompleted || 0) + '</td>' +
+        '<td>' + coins + '</td>' +
+        '<td><span class="pill pill--soft">' + (RECORD_LABELS[record.status] || record.status) + '</span></td>' +
+      '</tr>'
+    );
+  }
+
   function renderHistory(history) {
-    var tbody = document.querySelector('[data-session-history]');
-    if (!tbody) return;
+    var tables = document.querySelectorAll('[data-session-history]');
+    if (tables.length === 0) return;
 
-    if (!history || history.length === 0) {
-      tbody.innerHTML =
-        '<tr class="table__empty"><td colspan="5">No sessions yet — finish one and it will be listed here.</td></tr>';
-      return;
-    }
+    var records = history || [];
 
-    tbody.innerHTML = history.map(function (record) {
-      var focusCell = record.focusedDurationMs === null
-        ? '<span class="muted small">pending</span>'
-        : formatDuration(record.focusedDurationMs);
+    tables.forEach(function (tbody) {
+      var limit = parseInt(tbody.dataset.historyLimit, 10);
+      var rows = isFinite(limit) && limit > 0 ? records.slice(0, limit) : records;
 
-      return (
-        '<tr>' +
-          '<td><strong>' + escapeHtml(record.subject) + '</strong>' +
-            (record.goal ? '<br /><span class="muted small">' + escapeHtml(record.goal) + '</span>' : '') +
-          '</td>' +
-          '<td>' + formatDuration(record.totalDurationMs) + '</td>' +
-          '<td>' + formatDuration(record.activeDurationMs) + '</td>' +
-          '<td>' + focusCell + '</td>' +
-          '<td>' + record.pomodorosCompleted + '</td>' +
-          '<td>' + formatDateTime(record.startTime) + '</td>' +
-          '<td><span class="pill pill--soft">' + (RECORD_LABELS[record.status] || record.status) + '</span></td>' +
-        '</tr>'
-      );
-    }).join('');
+      if (rows.length === 0) {
+        tbody.innerHTML =
+          '<tr class="table__empty"><td colspan="8">No sessions yet — finish one and it will be listed here.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rows.map(historyRowHtml).join('');
+    });
   }
 
   function escapeHtml(value) {
@@ -223,9 +249,22 @@
      Session summary
      ------------------------------------------------------------------- */
 
+  /** "12m 30s", or a dash when the session was never measured. */
+  function measuredOrDash(ms, measured) {
+    if (!measured) return '—';
+    return formatDuration(ms || 0);
+  }
+
   function showSummary(record) {
     var modal = document.querySelector('[data-session-summary]');
     if (!modal) return;
+
+    // Everything attention-related comes from the focus engine (Phase 8).
+    // `measured` is false when the camera was off for the whole session.
+    var measured = record.measured === true;
+    var score = record.focusScore === null || record.focusScore === undefined
+      ? '—'
+      : String(record.focusScore);
 
     var fields = {
       subject: escapeHtml(record.subject),
@@ -236,16 +275,22 @@
       active: formatDuration(record.activeDurationMs),
       paused: formatDuration(record.pausedDurationMs),
       break: formatDuration(record.breakDurationMs),
-      focus: record.focusedDurationMs === null
-        ? 'Pending camera monitoring'
-        : formatDuration(record.focusedDurationMs),
+      focus: measuredOrDash(record.focusedDurationMs, measured),
+      distracted: measuredOrDash(record.distractedDurationMs, measured),
+      'face-missing': measuredOrDash(record.faceMissingDurationMs, measured),
+      distractions: String(record.distractionCount || 0),
+      score: score,
+      rating: record.focusRating || 'Not measured',
+      coins: String(record.focusCoinsEarned || 0),
       pomodoros: String(record.pomodorosCompleted),
       status: RECORD_LABELS[record.status] || record.status,
     };
 
     Object.keys(fields).forEach(function (key) {
       var el = modal.querySelector('[data-summary="' + key + '"]');
-      if (el) el.innerHTML = fields[key];
+      if (!el) return;
+      el.innerHTML = fields[key];
+      if (key === 'rating') el.dataset.rating = record.focusRatingKey || 'none';
     });
 
     modal.hidden = false;

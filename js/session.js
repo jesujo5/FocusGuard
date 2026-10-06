@@ -24,7 +24,17 @@
        activeDurationMs:  3540000,        // total minus paused time
        pausedDurationMs:  60000,          // time spent paused
 
-       focusedDurationMs: null,           // placeholder — camera phase
+       focusedDurationMs:     2460000,   // screen-facing time (measured)
+       distractedDurationMs:   240000,   // attention elsewhere (head away)
+       faceMissingDurationMs:  150000,   // face not in frame
+       unclassifiedDurationMs: 300000,   // grace / detection unavailable
+       distractionCount:            3,   // one event per away episode
+
+       focusScore:                 79,   // estimated, 0-100 (null if unmeasured)
+       focusRating:         'Strong',    // Excellent / Strong / Moderate / ...
+       focusCoinsEarned:           41,   // 1 focused minute = 1 coin
+       measured:                 true,   // was the camera on during the session?
+
        breakDurationMs:   900000,         // time the timer spent in breaks
        pomodorosCompleted: 3,             // finished focus blocks
 
@@ -32,9 +42,11 @@
        createdAt:         1759480200000,  // when the record was created
      }
 
-   `focusedDurationMs` stays null on purpose: real focused time needs camera
-   monitoring, which is a later phase. The field is reserved now so nothing
-   has to change when it arrives.
+   The measured attention fields come from js/distraction.js (timing) and
+   js/focusEngine.js (score, rating, coins). They stay null/0 when the
+   camera was off for the whole session — the history table and the summary
+   then show a dash instead of a number. The session never measures or
+   scores anything itself, so attention timing has one single owner.
 
    ---- Using it from the console --------------------------------------
      const s = window.FocusGuard.session;
@@ -90,6 +102,41 @@
     return Object.assign({}, record);
   }
 
+  /**
+   * The measured attention numbers for the live session.
+   *
+   * js/distraction.js owns the timing buckets (focused / distracted /
+   * face-missing) and js/focusEngine.js turns them into a Focus Score, a
+   * rating and Focus Coins. The session only reads the result, so exactly
+   * one module measures attention for a session. Returns null when nothing
+   * was measured (for example the camera was off the whole time).
+   */
+  function attentionSnapshot() {
+    var engine = global.FocusGuard && global.FocusGuard.focusEngine;
+    if (!engine || typeof engine.getSessionSnapshot !== 'function') return null;
+    return engine.getSessionSnapshot();
+  }
+
+  /**
+   * A side-effect-free peek at the live attention numbers (no coin awarding).
+   * Returns null when nothing is measurable yet.
+   */
+  function liveAttention() {
+    var engine = global.FocusGuard && global.FocusGuard.focusEngine;
+    if (!engine || typeof engine.peekSession !== 'function') return null;
+    var live = engine.peekSession();
+    if (!live.sessionActive || !live.measured) return null;
+    return {
+      focusedDurationMs: live.focusedMs,
+      distractedDurationMs: live.distractedMs,
+      faceMissingDurationMs: live.faceMissingMs,
+      focusScore: live.score,
+      focusRating: live.rating,
+      focusCoinsEarned: live.coinsEarned,
+      currentState: live.currentState,
+    };
+  }
+
   /* ---------- The session manager ---------- */
 
   function SessionManager(options) {
@@ -143,8 +190,10 @@
    */
   SessionManager.prototype.getState = function () {
     var active = this.active;
+    var attention = active ? liveAttention() : null;
 
     return {
+      id: active ? active.id : null,
       status: active ? active.status : SESSION_STATUS.IDLE,
       isActive: !!active,
       subject: active ? active.subject : '',
@@ -157,8 +206,16 @@
       activeDurationMs: active ? this._elapsedActive() : 0,
       pausedDurationMs: active ? active.pausedDurationMs : 0,
 
-      // Reserved for the camera-monitoring phase.
-      focusedDurationMs: active ? active.focusedDurationMs : null,
+      // Measured by the attention engine while the camera monitors the session.
+      focusedDurationMs: attention ? attention.focusedDurationMs : null,
+      distractedDurationMs: attention ? attention.distractedDurationMs : null,
+      faceMissingDurationMs: attention ? attention.faceMissingDurationMs : null,
+      focusScore: attention ? attention.focusScore : null,
+      focusRating: attention ? attention.focusRating : null,
+      focusCoinsEarned: attention ? attention.focusCoinsEarned : 0,
+
+      // Where the attention state currently stands (FOCUSED, GRACE, ...).
+      attentionState: attention ? attention.currentState : null,
       breakDurationMs: active ? active.breakDurationMs : 0,
 
       pomodorosCompleted: active ? active.pomodorosCompleted : 0,
@@ -311,6 +368,7 @@
 
     var totalDurationMs = Math.max(0, now - active.startTime);
     var activeDurationMs = Math.round(active.accumulatedActiveMs);
+    var attention = attentionSnapshot();
 
     return {
       id: active.id,
@@ -323,7 +381,22 @@
       activeDurationMs: activeDurationMs,
       pausedDurationMs: Math.max(0, totalDurationMs - activeDurationMs),
 
-      focusedDurationMs: active.focusedDurationMs, // placeholder (camera phase)
+      // ---- measured attention (null/0 when the camera was off) --------
+      // Screen-facing time and the time the attention was elsewhere. Every
+      // measured second belongs to exactly one of these, so they never
+      // overlap. See js/focusEngine.js for the score and coin rules.
+      focusedDurationMs: attention ? attention.focusedDurationMs : null,
+      distractedDurationMs: attention ? attention.distractedDurationMs : null,
+      faceMissingDurationMs: attention ? attention.faceMissingDurationMs : null,
+      unclassifiedDurationMs: attention ? attention.unclassifiedDurationMs : null,
+      distractionCount: attention ? attention.distractionCount : 0,
+      measured: attention ? attention.measured === true : false,
+
+      // Estimated productivity for this session (null = not measurable).
+      focusScore: attention ? attention.focusScore : null,
+      focusRating: attention ? attention.focusRating : null,
+      focusCoinsEarned: attention ? attention.focusCoinsEarned : 0,
+
       breakDurationMs: Math.round(active.breakDurationMs),
       pomodorosCompleted: active.pomodorosCompleted,
 
@@ -347,6 +420,94 @@
   SessionManager.prototype.clearHistory = function () {
     this.history = [];
     this._emit('change', null);
+  };
+
+  /* ---------- Persistence hooks (Phase 9) -----------------------------
+     js/sync.js owns storage. These three methods are the only way it
+     needs to touch the session manager: read the live session to save it,
+     put it back after a reload, and fill the history list with the
+     records that were loaded from IndexedDB.
+     ------------------------------------------------------------------- */
+
+  /**
+   * A small, storable picture of the live session. Returns null when
+   * nothing is running. Used to offer "resume / end / discard" after a
+   * browser restart without ever touching the camera.
+   */
+  SessionManager.prototype.snapshot = function () {
+    var active = this.active;
+    if (!active) return null;
+    return {
+      id: active.id,
+      subject: active.subject,
+      goal: active.goal,
+      startTime: active.startTime,
+      createdAt: active.createdAt,
+      accumulatedActiveMs: Math.round(this._elapsedActive()),
+      pausedDurationMs: Math.round(active.pausedDurationMs || 0),
+      breakDurationMs: Math.round(active.breakDurationMs || 0),
+      pomodorosCompleted: active.pomodorosCompleted || 0,
+      status: active.status,
+    };
+  };
+
+  /**
+   * Put a saved session back as the live one. It always comes back
+   * PAUSED: FocusGuard never restarts camera monitoring on its own, and
+   * never asks for webcam permission after a page load.
+   *
+   * The session keeps its original id, so re-saving it can only ever
+   * update the same stored/remote record — never create a duplicate.
+   */
+  SessionManager.prototype.restore = function (saved) {
+    if (!saved || !saved.id) return null;
+    if (this.active) return null;
+
+    var now = Date.now();
+    var startTime = Number(saved.startTime) || now;
+    var accumulated = Math.max(0, Number(saved.accumulatedActiveMs) || 0);
+
+    this.active = {
+      id: saved.id,
+      subject: trimText(saved.subject, 'Recovered session'),
+      goal: trimText(saved.goal, ''),
+
+      startTime: startTime,
+      endTime: null,
+
+      lastResumeTime: now,
+      lastPauseTime: now,
+      accumulatedActiveMs: accumulated,
+      // Whatever is not measured running time counts as paused time, so
+      // "total elapsed = active + paused" always stays true.
+      pausedDurationMs: Math.max(0, now - startTime - accumulated),
+
+      focusedDurationMs: null,
+      breakDurationMs: Math.max(0, Number(saved.breakDurationMs) || 0),
+      pomodorosCompleted: Math.max(0, Math.floor(Number(saved.pomodorosCompleted) || 0)),
+
+      restored: true,
+      status: SESSION_STATUS.PAUSED,
+      createdAt: Number(saved.createdAt) || startTime,
+    };
+
+    this._emit('change', null);
+    return this.getState();
+  };
+
+  /**
+   * Seed the history list from stored records (newest first). The manager
+   * still keeps them in memory only — it is the UI that renders them.
+   */
+  SessionManager.prototype.restoreHistory = function (records) {
+    var list = (records || [])
+      .filter(function (record) { return record && record.id; })
+      .map(cloneRecord);
+
+    list.sort(function (a, b) { return (b.startTime || 0) - (a.startTime || 0); });
+    this.history = list.slice(0, MAX_HISTORY);
+    this._emit('change', null);
+    return this.getState();
   };
 
   /* ---------- Associating the Pomodoro timer ---------- */

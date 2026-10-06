@@ -56,12 +56,14 @@
   // Zones in degrees. Between the two values sits a deliberate dead
   // zone that keeps the previous reading, so a head that hovers just
   // outside the forward zone cannot flip the label back and forth.
-  // Calibrated against real photos: a face aimed at the screen measured
-  // within ±2° of yaw and −2°..−9° of pitch on the landmark model.
+  // Calibrated against real photos: faces aimed at the screen measured
+  // within ±2° of yaw, while the pitch reading carried a personal bias
+  // (−2°..−18° across the reference photos), so the pitch zone is wider
+  // on purpose — a natural downward bias must not read as DOWN.
   var YAW_FORWARD_DEG = 10;    // inside this: clearly facing the screen
   var YAW_TURN_DEG = 16;       // beyond this: a deliberate turn
-  var PITCH_FORWARD_DEG = 12;
-  var PITCH_TURN_DEG = 18;
+  var PITCH_FORWARD_DEG = 14;
+  var PITCH_TURN_DEG = 20;
 
   // Smoothing: median over a short rolling window (~1 s at 5 samples/s)
   // plus N consecutive agreeing classifications before the label moves.

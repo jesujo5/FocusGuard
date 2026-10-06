@@ -4,7 +4,7 @@
 
    This file does a few small, well-separated jobs:
      1. Switch between the sidebar views.
-     2. Render the remaining placeholder dashboard values.
+     2. Ask the focus engine to paint the measured dashboard values.
      3. Open / close Focus Mode.
      4. Toggle browser fullscreen (Fullscreen API only, no CSS fake).
 
@@ -15,25 +15,8 @@
      js/session-ui.js study session DOM
      js/clock.js      real-world clock
      js/camera.js     webcam lifecycle
+     js/focusEngine.js measured attention, focus score, Focus Coins
    ===================================================================== */
-
-/* ---------------------------------------------------------------------
-   Placeholder state
-   These numbers are fake for now. Later phases will replace this object
-   with real data coming from the session logger.
-   --------------------------------------------------------------------- */
-const placeholderState = {
-  status: 'idle',            // 'idle' | 'focusing' | 'break'
-  focusPercent: 0,           // 0 - 100
-  todayFocusedMinutes: 0,
-  todayGoalMinutes: 120,     // 2 hours
-  sessionsToday: 0,
-  longestMinutes: 0,
-  weeklyAverageMinutes: 0,
-  coins: 0,
-  coinsToday: 0,
-  streakDays: 0,
-};
 
 /* Human-readable labels for each view, used by the topbar. */
 const viewMeta = {
@@ -49,14 +32,6 @@ const viewMeta = {
    Small helpers
    --------------------------------------------------------------------- */
 
-/** Format a number of minutes as "1h 05m" / "45m". */
-function formatMinutes(minutes) {
-  const safe = Math.max(0, Math.round(minutes));
-  const hours = Math.floor(safe / 60);
-  const mins = safe % 60;
-  if (hours === 0) return `${mins}m`;
-  return `${hours}h ${String(mins).padStart(2, '0')}m`;
-}
 
 /** Look up an element, or throw so mistakes are obvious while developing. */
 function getEl(id) {
@@ -271,69 +246,17 @@ function initFullscreen() {
 }
 
 /* ---------------------------------------------------------------------
-   4. Render placeholder dashboard values
+   5. Dashboard values
+   ---------------------------------------------------------------------
+   Every measured number on the dashboard — today's focused time, the
+   estimated Focus Score, Focus Coins, the daily goal — is owned by
+   js/focusEngine.js, which renders it from real timestamp-based data.
+   Keeping a single owner means the dashboard can never drift away from
+   what the session summary reports.
    --------------------------------------------------------------------- */
-function renderDashboard(state) {
-  const ringLength = 327; // matches stroke-dasharray in style.css
-
-  // Focus status ring + pill.
-  const ring = getEl('focusRing');
-  if (ring) {
-    const offset = ringLength - (ringLength * state.focusPercent) / 100;
-    ring.style.strokeDashoffset = String(offset);
-  }
-  const percent = getEl('focusPercent');
-  if (percent) percent.textContent = `${state.focusPercent}%`;
-
-  const meterFill = getEl('focusMeterFill');
-  if (meterFill) meterFill.style.width = `${state.focusPercent}%`;
-
-  // The focus status pill and the two status lines are owned by the
-  // Pomodoro timer (see data-timer-state in js/timer-ui.js).
-
-  // Today's goal progress.
-  const goalDoneEl = getEl('goalDone');
-  if (goalDoneEl) goalDoneEl.textContent = formatMinutes(state.todayFocusedMinutes);
-
-  const goalPill = getEl('goalPill');
-  if (goalPill) goalPill.textContent = `Goal: ${formatMinutes(state.todayGoalMinutes)}`;
-
-  const goalPercent = state.todayGoalMinutes
-    ? Math.min(100, Math.round((state.todayFocusedMinutes / state.todayGoalMinutes) * 100))
-    : 0;
-
-  const goalFill = getEl('goalProgressFill');
-  if (goalFill) goalFill.style.width = `${goalPercent}%`;
-
-  const goalBar = getEl('goalProgressBar');
-  if (goalBar) goalBar.setAttribute('aria-valuenow', String(goalPercent));
-
-  const goalCaption = getEl('goalCaption');
-  if (goalCaption) {
-    goalCaption.textContent = goalPercent === 0
-      ? 'No focused time logged yet today.'
-      : `${goalPercent}% complete — keep going.`;
-  }
-
-  // Coins.
-  const coinValue = getEl('coinValue');
-  if (coinValue) coinValue.textContent = String(state.coins);
-  const coinToday = getEl('coinToday');
-  if (coinToday) coinToday.textContent = `+${state.coinsToday}`;
-
-  // Stat strip.
-  const statFocused = getEl('statFocused');
-  if (statFocused) statFocused.textContent = formatMinutes(state.todayFocusedMinutes);
-  const statSessions = getEl('statSessions');
-  if (statSessions) statSessions.textContent = String(state.sessionsToday);
-  const statLongest = getEl('statLongest');
-  if (statLongest) statLongest.textContent = formatMinutes(state.longestMinutes);
-  const statAverage = getEl('statAverage');
-  if (statAverage) statAverage.textContent = formatMinutes(state.weeklyAverageMinutes);
-
-  // Streak chip in the sidebar.
-  const streak = document.querySelector('.streak-chip strong');
-  if (streak) streak.textContent = String(state.streakDays);
+function renderDashboard() {
+  const engine = window.FocusGuard && window.FocusGuard.focusEngine;
+  if (engine && typeof engine.render === 'function') engine.render();
 }
 
 /* ---------------------------------------------------------------------
@@ -344,7 +267,7 @@ function init() {
   initSidebarDrawer();
   initFocusMode();
   initFullscreen();
-  renderDashboard(placeholderState);
+  renderDashboard();
   showView('dashboard');
 }
 
@@ -356,7 +279,6 @@ document.addEventListener('DOMContentLoaded', init);
 window.FocusGuard = Object.assign(window.FocusGuard || {}, {
   showView,
   renderDashboard,
-  state: placeholderState,
   openFocusMode,
   closeFocusMode,
   toggleFullscreen,

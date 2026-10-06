@@ -4,13 +4,15 @@ An AI-assisted study productivity app that combines a Pomodoro-style study timer
 study sessions, browser-based focus monitoring, detailed analytics, and a
 gamified personal world that grows from the time you actually spend focused.
 
-> **Status: Phase 6 — approximate head direction.**
+> **Status: Phase 8 — productivity measurement (focus score + Focus Coins).**
 > Study sessions, the Pomodoro timer, the sand clock, the real-time clock,
 > Focus Mode, fullscreen, the webcam panel, an **on-device face presence
-> detector** (MediaPipe FaceLandmarker) and an **approximate head-direction
-> readout** are implemented.
-> Attention/distraction scoring, Focus Coins, Supabase, analytics and the
-> world builder are **not** implemented yet.
+> detector** (MediaPipe FaceLandmarker), an **approximate head-direction
+> readout**, a **screen-facing attention state with a configurable grace
+> period** and a **measured Focus Score, rating and Focus Coin ledger** are
+> implemented.
+> Supabase, cloud persistence, analytics charts and the world builder are
+> **not** implemented yet (Focus Coins live in memory for this tab only).
 
 ## Planned systems
 
@@ -22,7 +24,9 @@ gamified personal world that grows from the time you actually spend focused.
 | Camera monitoring | **Local preview + lifecycle done** — permission states, start/stop, privacy notes |
 | Face detection (presence only) | **Done** — on-device MediaPipe FaceLandmarker, ~5 fps, nothing uploaded |
 | Head direction (approximate) | **Done** — Forward / Looking Left / Right / Up / Down, from local landmarks + smoothing |
-| Attention & distraction scoring | Not started (a later phase) |
+| Attention / distraction engine | **Done** — Focused / Attention drifting / Distracted / Face not detected / Detection unavailable, 5 s grace (2–15 s), one event per away episode, focused-time accounting |
+| Estimated Focus Score & rating | **Done** — focused ÷ (focused + distracted + face-missing), 0–100, Excellent / Strong / Moderate / Needs Improvement |
+| Focus Coins | **Done (in memory)** — 1 focused minute = 1 coin, ledger, duplicate-proof, dashboard + summary |
 | Productivity history & analytics | History is live; analytics still a placeholder |
 | Gamified personal world | Preview only |
 
@@ -41,7 +45,9 @@ never reaches into another's state.
 | `js/camera.js` | Webcam lifecycle: permission, start, stop, release. |
 | `js/faceDetection.js` | On-device face **presence** detection (MediaPipe FaceLandmarker). Follows `camera.js`, exposes raw landmark/pose samples; never uploads. |
 | `js/attention.js` | Approximate **head direction** from those samples. No camera, no network, no loop of its own. |
-| `app.js` | Navigation, placeholder dashboard, Focus Mode, fullscreen. |
+| `js/distraction.js` | **Attention / distraction engine.** Turns presence + direction + a time-based grace period into one screen-facing state, times distraction events and accumulates focused time. No camera, no model, no rAF loop of its own. |
+| `js/focusEngine.js` | **Productivity layer.** Turns the measured buckets into an estimated Focus Score, a rating, Focus Coins (with an in-memory ledger) and today's totals, and paints them into the dashboard, the live session panel and Focus Mode. Scores, never measures. |
+| `app.js` | Navigation, dashboard values (delegated to the focus engine), Focus Mode, fullscreen. |
 
 ### How the pieces connect
 
@@ -65,6 +71,28 @@ camera.js   ──▶ every [data-camera-*] element
                                                        FORWARD / LEFT / RIGHT /
                                                        UP / DOWN / FACE_MISSING
                                                        ──▶ every [data-head-*] element
+                                                              │
+                                                              └── change + 250 ms
+                                                                  heartbeat ──▶ distraction.js
+                                                                  FOCUSED / GRACE /
+                                                                  DISTRACTED / FACE_MISSING /
+                                                                  UNKNOWN
+                                                                  ──▶ every [data-focus-*] element
+                                                                  ──▶ measured buckets:
+                                                                     focused / distracted /
+                                                                     face-missing time
+                                                                              │
+                                                              ┌───────────────┘
+                                                              ▼
+                                                       focusEngine.js (1 Hz)
+                                                       Focus Score + rating
+                                                       Focus Coins + ledger
+                                                       today's totals
+                                                              │
+                                    ┌─────────────────────────┼──────────────────┐
+                                    ▼                         ▼                  ▼
+                              dashboard                live session panel    session record
+                              [data-engine]            [data-engine]          (summary + history)
 ```
 
 ## The study session record
@@ -84,7 +112,17 @@ session ends it is frozen into this plain object:
   activeDurationMs:  3540000,         // total minus paused time
   pausedDurationMs:     60000,
 
-  focusedDurationMs: null,            // reserved — needs camera monitoring
+  focusedDurationMs:     2460000,     // screen-facing time (measured)
+  distractedDurationMs:   240000,     // attention elsewhere (head away)
+  faceMissingDurationMs:  150000,     // face not in frame
+  unclassifiedDurationMs: 300000,     // grace / detection unavailable
+  distractionCount:            3,     // one event per away episode
+
+  focusScore:                 79,     // estimated, 0-100 (null if unmeasured)
+  focusRating:         'Strong',      // Excellent / Strong / Moderate / ...
+  focusCoinsEarned:           41,     // 1 focused minute = 1 coin
+  measured:                 true,     // was anything measurable?
+
   breakDurationMs:   900000,          // time the timer spent in breaks
   pomodorosCompleted: 3,
 
@@ -93,9 +131,12 @@ session ends it is frozen into this plain object:
 }
 ```
 
-`focusedDurationMs` stays `null` on purpose: face presence alone is not focused
-time. It needs the attention layer (orientation + rules) from a later phase. The
-field exists now so nothing has to change when it is filled in.
+Every measured second belongs to exactly one of the four duration fields, so
+they never overlap and can never double-count. They stay `null` (and the score
+stays `null`) when nothing was measurable — the history table and the summary
+show a dash instead of a fake zero. The session neither measures nor scores
+anything itself: `js/distraction.js` owns the timing and `js/focusEngine.js`
+owns the score, the rating and the coins.
 
 ## The sand clock
 
@@ -197,7 +238,9 @@ Lifecycle rules:
 - If the model cannot load, the panel shows `Detection Error` and everything else
   (timer, sessions, clock, camera preview) continues normally.
 - `attention.js` does not run a second loop and never touches the camera or the
-  network: it only transforms the samples it is handed.
+  network: it only transforms the samples it is handed. `distraction.js` follows
+  the same rule — it reads the latest state of the modules above it and adds a
+  250 ms heartbeat for time-based transitions, nothing more.
 
 Console: `FocusGuard.faceDetection.getState()` / `.getSample()` / `.start()` /
 `.stop()` / `.detect(video)` / `.on('change', fn)` / `.on('sample', fn)`.
@@ -223,9 +266,14 @@ How the estimate is made (all local):
 2. Both angles are smoothed with a rolling **median over 5 samples** (~1 s at
    the 5 Hz rate).
 3. A direction is only reported when it clears the turn thresholds
-   (`yaw 18°`, `pitch 15°`); coming back to `Forward` needs `yaw 11° / pitch 9°`.
+   (`yaw 16°`, `pitch 20°`); coming back to `Forward` needs `yaw 10° / pitch 14°`.
    The gap is a dead zone that keeps the previous reading, and a change needs
    **3 consecutive agreeing samples** before the row moves.
+
+The pitch zone is deliberately roomier than the yaw zone: webcam geometry can
+give a perfectly forward-facing head a natural downward pitch bias (up to a
+two-digit negative angle on reference photos), and that must not read as
+`Looking Down`.
 
 Measured behaviour: an obvious turn shows up in about a second, small natural
 movements (a few degrees) never flicker the row, and no direction ever changes
@@ -233,16 +281,128 @@ the timer, pauses a session or raises a warning.
 
 Console: `FocusGuard.attention.getState()` / `.getPose()`.
 
-### Intentionally not implemented yet
+## Focus status — screen-facing attention
 
-- Attention estimation, distraction detection, grace periods, warnings
-- Attention / focus score, focused-minutes accounting
-- Focus Coins, Supabase, authentication
-- World builder, analytics charts
+A second row under the head direction turns the camera signals into one calm
+verdict. It reports whether the user is **facing the study screen**, never
+whether they are concentrating.
+
+| State | Row shows | Meaning |
+| --- | --- | --- |
+| `FOCUSED` | ● Focused | Face detected, head forward, and stable for ~1.2 s |
+| `GRACE` | ● Attention drifting / "Returning to screen…" | Was focused, looked away, grace period not over |
+| `DISTRACTED` | ● Distracted / "Attention has been away for 7s" | Away longer than the grace period |
+| `FACE_MISSING` | ● Face not detected | No face in frame (already debounced by the detector) |
+| `UNKNOWN` | ● Detection unavailable | Camera off, model loading/failed, no usable reading |
+
+The grace period (default **5 s**, settable **2–15 s** in *Settings → Focus
+defaults*) exists so small, human movements do not count as distraction:
+
+```
+FOCUSED ──▶ GRACE ──(grace expires)──▶ DISTRACTED
+   ▲          │                            │
+   └──────────┴────── looking forward ─────┘
+```
+
+Rules:
+
+- One **distraction event per away episode**, created when `GRACE` becomes
+  `DISTRACTED` and closed when the user is focused again. Metadata only, held in
+  memory: `{ id, startTime, endTime, duration, reason }` with `reason` being
+  `HEAD_AWAY` or `FACE_MISSING`. No frame, image or landmark is ever stored.
+- A long face-absence opens the same kind of event, but only **after** the grace
+  period — a single missed detection never counts.
+- Focused time is accumulated by entering/leaving `FOCUSED`. It feeds the session
+  record, so the summary and history finally show a real *Focused time*.
+- **Monitoring is not tracking:** camera on without a study session only updates
+  this status row — no records are created. Records require an active session.
+- **The Pomodoro is untouched.** This module has no reference to `timer.js`: it
+  can never pause, reset, skip or end a period, and it never ends a session.
+- The engine runs on the detector's own samples plus a light 250 ms heartbeat —
+  no second camera stream, no second detector, no second `requestAnimationFrame`
+  loop. Every duration comes from timestamps.
+- Camera stop, session end and page hide all reset it; ending a session while
+  distracted closes the open event with the current timestamp. Listeners and the
+  heartbeat are never duplicated by starting the camera again.
 
 The wording stays honest on purpose: FocusGuard reports **"Face Detected"**,
-**"Face Not Detected"** and an approximate head direction — never "AI knows you
-are focused". A turned head is not proof of anything, and the interface says so.
+**"Face Not Detected"**, an approximate head direction and a screen-facing
+attention state — never "AI knows you are focused". A turned head is not proof
+of anything, and the interface says so.
+
+Console: `FocusGuard.distraction.getState()` / `.getSessionData()` /
+`.getEvents()` / `.getLastSessionData()` / `.setGracePeriod(s)` /
+`.on('change'|'event', fn)` / `.reset()`.
+
+## Productivity layer — estimated score, rating and Focus Coins
+
+`js/focusEngine.js` is the only module that scores anything. It reads the
+measured buckets from `distraction.js`, adds scoring and rewards, and paints
+them into the dashboard, the live session panel, Focus Mode and the session
+summary about once a second (never per animation frame).
+
+**What counts as focused time.** A second is filed as *focused* only when all of
+this is true: the attention state is `FOCUSED`, a study session is running (not
+paused), the Pomodoro is not paused and not on a break, and the tab is visible.
+Everything else measures nothing at all:
+
+| Attention state | Filed as |
+| --- | --- |
+| `FOCUSED` | focused time |
+| `DISTRACTED` | distracted time (the same seconds as the distraction events) |
+| `FACE_MISSING` | face-missing time (kept separate from head-away time) |
+| `GRACE` / `UNKNOWN` | unclassified time (never counted as focused) |
+
+**Estimated Focus Score (0–100).**
+
+```
+score = focused / (focused + distracted + faceMissing) × 100
+```
+
+Rounded, clamped to 0–100, and `null` (shown as “—”) when there is nothing
+measurable yet — never NaN, never Infinity, never negative. Unclassified time is
+deliberately left out of the denominator: it is neither positive nor negative
+evidence.
+
+| Score | Rating |
+| --- | --- |
+| 90–100 | Excellent |
+| 75–89 | Strong |
+| 60–74 | Moderate |
+| below 60 | Needs Improvement |
+
+**Focus Coins.** The rule is fixed and not configurable: **1 focused minute =
+1 Focus Coin**. Coins come from measured focused time only — never from the
+Pomodoro merely running, and never during breaks, pauses, distraction or
+face-missing time.
+
+```
+earnedCoins = floor(lifetimeFocusedSeconds / 60)
+newCoins    = earnedCoins - alreadyAwardedCoins     // never negative
+```
+
+Only the difference is ever awarded, so the dashboard can refresh as often as it
+likes without paying the same minute twice, and fractional seconds are kept so
+no focused time is lost. Every award is written to an in-memory ledger:
+
+```js
+{ id, type: 'FOCUSED_TIME', amount, timestamp, sessionId, focusedSeconds, rule }
+```
+
+> **Focus Coins are currently stored only in memory and are NOT persistent.**
+> They are kept for this browser tab, like the session history. Nothing is
+> uploaded, and there is no cloud storage in this phase.
+
+Console: `FocusGuard.focusEngine.getState()` / `.getToday()` / `.getLedger()` /
+`.getLastSession()` / `.getSessionSnapshot()` / `.peekSession()` /
+`.on('change'|'coin', fn)`.
+
+### Intentionally not implemented yet
+
+- Supabase, authentication, cloud persistence, cloud sync
+- World builder (terrain, buildings, biomes, item shop), achievements
+- Analytics charts
+- Webcam uploads, external AI APIs (and they will not be added)
 
 ## Project structure
 
@@ -250,7 +410,7 @@ are focused". A turned head is not proof of anything, and the interface says so.
 FocusGuard/
 ├── index.html            # App shell: sidebar, views, Focus Mode, summary dialog
 ├── style.css             # Red/black dark theme, layout, components
-├── app.js                # Navigation, Focus Mode, fullscreen, dashboard
+├── app.js                # Navigation, Focus Mode, fullscreen, dashboard wiring
 ├── js/
 │   ├── timer.js          # Pomodoro state machine (no DOM)
 │   ├── timer-ui.js       # Timer DOM, sand clock, chime, settings
@@ -259,7 +419,9 @@ FocusGuard/
 │   ├── clock.js          # Real-world clock (independent of timer.js)
 │   ├── camera.js         # Webcam lifecycle (local only)
 │   ├── faceDetection.js  # On-device face presence + landmarks (MediaPipe)
-│   └── attention.js      # Approximate head direction from those landmarks
+│   ├── attention.js      # Approximate head direction from those landmarks
+│   ├── distraction.js    # Screen-facing attention state, grace, focus timing
+│   └── focusEngine.js    # Focus score, rating, Focus Coins, daily totals
 ├── assets/
 │   ├── images/           # Reserved for artwork
 │   ├── icons/            # Reserved for icons
