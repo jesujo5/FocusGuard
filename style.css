@@ -1536,3 +1536,358 @@ body.is-fullscreen { overflow: hidden; }
 }
 .engine-score__meta p { margin: 0; }
 
+/* 18. Persistence, accounts & cloud sync (Phase 9) ---------------------- */
+/* A calm status chip in the topbar, a compact account panel and a small
+   non-blocking toast. Nothing here shouts at the user. */
+
+.sync-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.sync-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.sync-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sync-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.sync-chip__label { white-space: nowrap; }
+.sync-chip__label strong { font-weight: 600; }
+
+/* One colour language for Local / Syncing / Synced / Offline / Error. */
+[data-sync-state="local"] { color: var(--text-dim); }
+[data-sync-state="local"] .sync-chip__dot { background: var(--muted); }
+
+[data-sync-state="syncing"] { color: var(--accent-soft); }
+[data-sync-state="syncing"] .sync-chip__dot {
+  background: var(--accent-soft);
+  animation: cam-pulse 1.6s ease-in-out infinite;
+}
+
+[data-sync-state="synced"] { color: #7fd6a2; }
+[data-sync-state="synced"] .sync-chip__dot {
+  background: #7fd6a2;
+  box-shadow: 0 0 8px rgba(127, 214, 162, 0.7);
+}
+
+[data-sync-state="offline"] { color: var(--warn); }
+[data-sync-state="offline"] .sync-chip__dot { background: var(--warn); }
+
+[data-sync-state="error"] { color: var(--accent); }
+[data-sync-state="error"] .sync-chip__dot { background: var(--accent); }
+
+[data-sync-state="unavailable"] { color: var(--muted); }
+[data-sync-state="unavailable"] .sync-chip__dot { background: var(--muted); }
+
+/* Settings: the account card's little fact grid. */
+.sync-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 12px 0;
+}
+.sync-meta__row { font-size: 12.5px; color: var(--muted); }
+.sync-meta__row strong { color: var(--text-dim); font-weight: 600; }
+
+/* Account panel: a compact modal, deliberately not a full login page. */
+.modal__card--auth { max-width: 480px; }
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+.auth-form__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.auth-message {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.auth-message[hidden] { display: none; }
+[data-auth-state="signed-in"] .auth-message { color: #bff0d5; }
+[data-auth-state="working"] .auth-message { color: var(--accent-soft); }
+
+/* Session recovery: in the page flow, never an overlay that blocks clicks. */
+.card--recovery {
+  margin-bottom: var(--space-3);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.recovery-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+/* Toast: brief, non-blocking, never a browser alert. */
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  padding: 11px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-solid);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: var(--shadow-card);
+  pointer-events: none;                 /* never in the way of a click */
+  max-width: min(420px, 80vw);
+}
+.toast[hidden] { display: none; }
+.toast[data-toast-kind="ok"] { border-color: rgba(127, 214, 162, 0.5); color: #d6f5e2; }
+.toast[data-toast-kind="warn"] { border-color: rgba(224, 180, 106, 0.5); color: #f4e3c4; }
+
+/* History tables gained columns, so dates should never wrap oddly. */
+.nowrap { white-space: nowrap; }
+
+/* =====================================================================
+   19. Focus World (Phase 10)
+   A calm personal diorama: a CSS grid of cells, one glyph per object.
+   Soft terrain, depth through shadows, gentle transitions — no WebGL,
+   no canvas, no animation loop. Original artwork (emoji placeholders
+   today; each object also carries a type class for a future SVG/CSS art).
+   ===================================================================== */
+
+/* --- Dashboard preview -------------------------------------------------- */
+/* The Phase 4 preview set a fixed height; the live mini-grid needs auto. */
+.world-preview { height: auto; }
+.world-preview .world-mini { max-width: 240px; margin: 0 auto; }
+.world-preview-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+.world-preview-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.world-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0 6px;
+}
+
+/* --- The grid (shared by the dashboard preview and the world stage) ----- */
+.world-mini,
+.world-grid {
+  --grid-size: 5;
+  display: grid;
+  grid-template-columns: repeat(var(--grid-size), 1fr);
+  width: 100%;
+  gap: 2px;
+}
+.world-mini { padding: 12px; }
+.world-grid {
+  gap: 4px;
+  padding: 14px;
+  max-width: min(100%, 640px);
+  margin: 0 auto;
+  border-radius: var(--radius-md);
+}
+
+.world-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, #1d2416 0%, #171d12 100%);
+  font-size: clamp(9px, 1.4vw, 20px);
+  overflow: hidden;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+.world-grid .world-cell { cursor: pointer; }
+.world-grid .world-cell:hover { background: #232c1a; }
+.world-grid .world-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Category tints give the terrain a little depth without heavy art. */
+.world-cell[data-category="water"]      { background: linear-gradient(180deg, #12202e 0%, #0f1a26 100%); }
+.world-cell[data-category="terrain"]    { background: linear-gradient(180deg, #241d15 0%, #1a150f 100%); }
+.world-cell[data-category="structures"] { background: linear-gradient(180deg, #231a1c 0%, #191214 100%); }
+
+.world-cell.is-selected,
+.world-cell.is-moving {
+  outline: 2px solid #e5b46a;
+  outline-offset: -2px;
+  background: #2a2416;
+}
+
+.world-obj {
+  display: block;
+  line-height: 1;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+  transition: transform 160ms ease;
+}
+
+/* Placement / move affordances. */
+.world-grid[data-world-mode="place"] .world-cell:hover { background: rgba(127, 214, 162, 0.18); }
+.world-grid[data-world-mode="move"] .world-cell:hover  { background: rgba(229, 180, 106, 0.18); }
+
+/* --- The My World page -------------------------------------------------- */
+.world-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.world-head__coins { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.world-coin-badge {
+  padding: 6px 13px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: rgba(229, 180, 106, 0.09);
+  font-weight: 600;
+}
+
+.world-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 980px) { .world-layout { grid-template-columns: 1fr; } }
+
+.world-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.world-controls .btn.is-active { border-color: var(--accent); color: #fff; }
+
+.world-message { min-height: 18px; margin: 0 0 10px; }
+.world-message[data-world-message-kind="warn"] { color: #f4e3c4; }
+
+.world-stage-wrap {
+  position: relative;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: radial-gradient(circle at 50% 0%, #1c2417 0%, #10150c 72%);
+  padding: 8px;
+}
+.world-stage { display: flex; justify-content: center; }
+
+.world-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  background: rgba(10, 13, 7, 0.74);
+  backdrop-filter: blur(2px);
+}
+.world-empty__title { font-weight: 600; }
+
+/* --- Build panel -------------------------------------------------------- */
+.world-panel {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: #161114;
+}
+.world-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.world-cat__name {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.world-cat__items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 8px;
+}
+.world-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #1b1518;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.world-item:hover { border-color: var(--accent); }
+.world-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.world-item.is-selected { border-color: #e5b46a; background: #2a2416; }
+.world-item.is-locked { opacity: 0.5; cursor: help; }
+.world-item__icon { font-size: 18px; }
+.world-item__name { flex: 1; font-size: 13px; }
+.world-item__cost { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+
+/* --- Side panel --------------------------------------------------------- */
+.world-side { display: flex; flex-direction: column; gap: 10px; }
+.world-selection {
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: #171214;
+}
+.world-selection__name { margin: 0 0 4px; font-weight: 600; }
+.world-selection__buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.world-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: #171214;
+}
+.world-stat { display: flex; flex-direction: column; }
+
+@media (max-width: 640px) {
+  .world-grid { padding: 6px; gap: 3px; }
+  .world-cell { font-size: 12px; }
+}
+
+/* Focus World respects reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+  .world-cell, .world-obj { transition: none; }
+}
+

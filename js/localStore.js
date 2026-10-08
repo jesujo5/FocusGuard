@@ -15,6 +15,9 @@
      settings           the user's timer / grace / notification settings
      syncQueue          the outbox: local records waiting for the cloud
      profiles           a cached copy of the user's profile row
+     worlds             the Focus World itself (grid size, biome)
+     worldObjects       one row per placed object, soft-deleted when removed
+     worldExpansions    one row per purchased land expansion
      meta               small key/value notes (active session, last user)
 
    ---- What is NEVER stored -------------------------------------------
@@ -38,7 +41,7 @@
   'use strict';
 
   var DB_NAME = 'focusguard';
-  var DB_VERSION = 1;
+  var DB_VERSION = 2;             // v2 added the Phase 10 world stores
   var GUEST_ID = 'local';
 
   /**
@@ -88,6 +91,24 @@
     profiles: {
       keyPath: 'userId',
       indexes: [['byUser', 'userId']],
+    },
+    worlds: {
+      keyPath: 'id',
+      indexes: [['byUser', 'userId']],
+    },
+    worldObjects: {
+      keyPath: 'id',
+      indexes: [
+        ['byUser', 'userId'],
+        ['byWorld', 'worldId'],
+      ],
+    },
+    worldExpansions: {
+      keyPath: 'id',
+      indexes: [
+        ['byUser', 'userId'],
+        ['byWorld', 'worldId'],
+      ],
     },
     meta: { keyPath: 'key', indexes: [] },
   };
@@ -355,7 +376,8 @@
    */
   function clearUser(userId) {
     var targets = ['sessions', 'distractionEvents', 'coinLedger', 'dailyGoals',
-                   'settings', 'syncQueue', 'profiles'];
+                   'settings', 'syncQueue', 'profiles',
+                   'worlds', 'worldObjects', 'worldExpansions'];
     return targets.reduce(function (chain, store) {
       return chain.then(function () {
         return all(store, { userId: userId }).then(function (rows) {

@@ -62,12 +62,15 @@
      ------------------------------------------------------------------- */
 
   var TABLES = {
-    profiles:          { table: 'profiles',          conflict: 'user_id', priority: 0 },
-    sessions:          { table: 'study_sessions',    conflict: 'id',      priority: 1 },
-    distractionEvents: { table: 'distraction_events', conflict: 'id',     priority: 2 },
-    coinLedger:        { table: 'coin_ledger',       conflict: 'id',      priority: 3 },
-    dailyGoals:        { table: 'daily_goals',       conflict: 'id',      priority: 4 },
-    settings:          { table: 'user_settings',     conflict: 'user_id', priority: 5 },
+    profiles:          { table: 'profiles',           conflict: 'user_id', priority: 0 },
+    worlds:            { table: 'worlds',             conflict: 'id',      priority: 1 },
+    sessions:          { table: 'study_sessions',     conflict: 'id',      priority: 1 },
+    distractionEvents: { table: 'distraction_events', conflict: 'id',      priority: 2 },
+    coinLedger:        { table: 'coin_ledger',        conflict: 'id',      priority: 3 },
+    dailyGoals:        { table: 'daily_goals',        conflict: 'id',      priority: 4 },
+    settings:          { table: 'user_settings',      conflict: 'user_id', priority: 5 },
+    worldObjects:      { table: 'world_objects',      conflict: 'id',      priority: 6 },
+    worldExpansions:   { table: 'world_expansions',   conflict: 'id',      priority: 7 },
   };
 
   var STATUS = {
@@ -79,7 +82,7 @@
     UNAVAILABLE: 'unavailable',
   };
 
-  var SYNC_ORDER = ['sessions', 'distractionEvents', 'coinLedger', 'dailyGoals', 'settings', 'profiles'];
+  var SYNC_ORDER = ['worlds', 'sessions', 'distractionEvents', 'coinLedger', 'dailyGoals', 'settings', 'worldObjects', 'worldExpansions', 'profiles'];
   var FLUSH_DEBOUNCE_MS = 900;
   var RETRY_MS = 30000;
   var ACTIVE_SAVE_MS = 5000;
@@ -370,6 +373,9 @@
    * same row) and unique per award (so nothing is ever double-paid).
    */
   function ledgerIdFor(entry) {
+    // A world purchase carries its own stable id, so retrying a purchase
+    // always lands on the same ledger row (never a second charge).
+    if (entry.purchaseId) return 'wp-' + entry.purchaseId;
     if (entry.sessionId) {
       return 'cl-' + entry.sessionId + '-' + Math.max(0, Math.floor(entry.focusedSeconds || 0));
     }
@@ -382,7 +388,8 @@
       userId: uid,
       sessionId: entry.sessionId || null,
       type: entry.type || 'FOCUSED_TIME',
-      amount: Math.max(0, Math.floor(entry.amount || 0)),
+      // Positive for focused time, negative for a Phase 10 world purchase.
+      amount: Math.floor(entry.amount || 0),
       timestamp: clockMs(entry.timestamp) || Date.now(),
       focusedSeconds: Math.max(0, Math.floor(entry.focusedSeconds || 0)),
       rule: entry.rule || '1 focused minute = 1 Focus Coin',
@@ -430,6 +437,85 @@
       sessionId: row.sessionId,
       focusedSeconds: row.focusedSeconds,
       rule: row.rule,
+    };
+  }
+
+  /* ---------- Focus World rows (Phase 10) ----------------------------- */
+
+  function worldToCloud(row) {
+    return {
+      id: row.id,
+      user_id: row.userId,
+      grid_size: Math.max(5, Math.floor(row.gridSize || 5)),
+      biome: row.biome || 'meadow',
+      created_at: iso(row.createdAt),
+      updated_at: iso(row.updatedAt || Date.now()),
+    };
+  }
+
+  function worldFromCloud(row, uid) {
+    return {
+      id: row.id,
+      userId: uid,
+      gridSize: numberOrNull(row.grid_size) || 5,
+      biome: row.biome || 'meadow',
+      createdAt: fromIso(row.created_at, Date.now()),
+      updatedAt: fromIso(row.updated_at, Date.now()),
+    };
+  }
+
+  function objectToCloud(row) {
+    return {
+      id: row.id,
+      world_id: row.worldId,
+      user_id: row.userId,
+      type: row.type,
+      x: Math.floor(row.x || 0),
+      y: Math.floor(row.y || 0),
+      rotation: Math.floor(row.rotation || 0),
+      deleted: row.deleted === true,
+      created_at: iso(row.createdAt),
+      updated_at: iso(row.updatedAt || Date.now()),
+    };
+  }
+
+  function objectFromCloud(row, uid) {
+    return {
+      id: row.id,
+      userId: uid,
+      worldId: row.world_id || null,
+      type: row.type,
+      x: numberOrNull(row.x) || 0,
+      y: numberOrNull(row.y) || 0,
+      rotation: numberOrNull(row.rotation) || 0,
+      deleted: row.deleted === true,
+      createdAt: fromIso(row.created_at, Date.now()),
+      updatedAt: fromIso(row.updated_at, Date.now()),
+    };
+  }
+
+  function expansionToCloud(row) {
+    return {
+      id: row.id,
+      world_id: row.worldId,
+      user_id: row.userId,
+      old_grid_size: Math.floor(row.oldGridSize || 0),
+      new_grid_size: Math.floor(row.newGridSize || 0),
+      cost: Math.floor(row.cost || 0),
+      created_at: iso(row.createdAt),
+    };
+  }
+
+  function expansionFromCloud(row, uid) {
+    return {
+      id: row.id,
+      userId: uid,
+      worldId: row.world_id || null,
+      oldGridSize: numberOrNull(row.old_grid_size) || 0,
+      newGridSize: numberOrNull(row.new_grid_size) || 0,
+      cost: numberOrNull(row.cost) || 0,
+      createdAt: fromIso(row.created_at, Date.now()),
+      updatedAt: fromIso(row.created_at, Date.now()),
     };
   }
 
@@ -716,6 +802,9 @@
     coinLedger: function (row) { return row.id; },
     dailyGoals: function (row) { return row.id; },
     settings: function (row) { return row.userId; },
+    worlds: function (row) { return row.id; },
+    worldObjects: function (row) { return row.id; },
+    worldExpansions: function (row) { return row.id; },
   };
 
   var CLOUD_MAPPERS = {
@@ -725,6 +814,9 @@
     coinLedger: ledgerToCloud,
     dailyGoals: goalToCloud,
     settings: settingsToCloud,
+    worlds: worldToCloud,
+    worldObjects: objectToCloud,
+    worldExpansions: expansionToCloud,
   };
 
   var LOCAL_MAPPERS = {
@@ -734,6 +826,9 @@
     coinLedger: ledgerFromCloud,
     dailyGoals: goalFromCloud,
     settings: settingsFromCloud,
+    worlds: worldFromCloud,
+    worldObjects: objectFromCloud,
+    worldExpansions: expansionFromCloud,
   };
 
   function storeKeyOf(entityType, localRow) {
@@ -780,6 +875,35 @@
     var row = ledgerFromEntry(entry, userId);
     return writeRows('coinLedger', [row]).then(function () {
       scheduleFlush('coin');
+      return row;
+    });
+  }
+
+  /* ---------- Focus World writing (Phase 10) --------------------------- */
+
+  /** The world itself: one row per user (grid size + biome). */
+  function persistWorld(row) {
+    if (!row || !row.id) return Promise.resolve(null);
+    return writeRows('worlds', [row]).then(function () {
+      scheduleFlush('world');
+      return row;
+    });
+  }
+
+  /** One placed object (or its soft-delete tombstone). */
+  function persistWorldObject(row) {
+    if (!row || !row.id) return Promise.resolve(null);
+    return writeRows('worldObjects', [row]).then(function () {
+      scheduleFlush('world-object');
+      return row;
+    });
+  }
+
+  /** One purchased land expansion. */
+  function persistWorldExpansion(row) {
+    if (!row || !row.id) return Promise.resolve(null);
+    return writeRows('worldExpansions', [row]).then(function () {
+      scheduleFlush('world-expansion');
       return row;
     });
   }
@@ -952,8 +1076,9 @@
     });
 
     // Coins come from the ledger (the source of truth), not from totals.
+    // Earned today only: a world purchase is spending, not negative study.
     acc.coins = ledgerRows.reduce(function (sum, row) {
-      return dateKey(row.timestamp) === today ? sum + (row.amount || 0) : sum;
+      return dateKey(row.timestamp) === today && row.amount > 0 ? sum + row.amount : sum;
     }, 0);
 
     return acc;
@@ -966,12 +1091,18 @@
       store.all('dailyGoals', { userId: uid }),
       store.get('settings', uid),
       store.getMeta(activeSessionKey(uid)),
+      store.all('worlds', { userId: uid }),
+      store.all('worldObjects', { userId: uid }),
+      store.all('worldExpansions', { userId: uid }),
     ]).then(function (results) {
       var sessions = results[0] || [];
       var ledger = results[1] || [];
       var goals = results[2] || [];
       var settings = results[3] || null;
       var activeNote = results[4] || null;
+      var worldRows = results[5] || [];
+      var worldObjectRows = results[6] || [];
+      var worldExpansionRows = results[7] || [];
 
       var engineApi = engine();
       if (engineApi && engineApi.hydrate) {
@@ -1010,6 +1141,18 @@
         }
       }
 
+      // The Focus World is rebuilt from its own rows (js/world.js owns the
+      // state; this module owns reading and writing the rows).
+      var worldApi = module('world');
+      if (worldApi && typeof worldApi.hydrate === 'function') {
+        worldApi.hydrate({
+          userId: uid,
+          world: worldRows[0] || null,
+          objects: worldObjectRows,
+          expansions: worldExpansionRows,
+        });
+      }
+
       offerRecovery(activeNote);
       render();
 
@@ -1019,6 +1162,7 @@
         coins: ledger.reduce(function (sum, row) { return sum + (row.amount || 0); }, 0),
         goals: goals.length,
         settings: settings,
+        worldObjects: worldObjectRows.length,
       };
     });
   }
@@ -1063,7 +1207,7 @@
 
     setStatus(STATUS.SYNCING, 'Loading your data from the cloud…');
 
-    var names = ['profiles', 'sessions', 'distractionEvents', 'coinLedger', 'dailyGoals', 'settings'];
+    var names = ['profiles', 'worlds', 'sessions', 'distractionEvents', 'coinLedger', 'dailyGoals', 'settings', 'worldObjects', 'worldExpansions'];
     var merged = {};
 
     return names.reduce(function (chain, name) {
@@ -1450,6 +1594,9 @@
     // Persistence API (also used by the tests).
     persistSession: persistSession,
     persistLedgerEntry: persistLedgerEntry,
+    persistWorld: persistWorld,
+    persistWorldObject: persistWorldObject,
+    persistWorldExpansion: persistWorldExpansion,
     saveActiveSession: saveActiveSession,
     clearActiveSession: clearActiveSession,
     saveSettings: saveSettings,

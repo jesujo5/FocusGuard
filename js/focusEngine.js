@@ -81,8 +81,12 @@
   var handlers = { change: [], coin: [] };
 
   // All-time (for this browser tab only).
+  // `totalCoins` is what focused time has EARNED. `spentCoins` is what
+  // Phase 10's world purchases have SPENT. The two never mix: the spendable
+  // balance is earned − spent, and it can never go below zero.
   var ledger = [];
   var totalCoins = 0;
+  var spentCoins = 0;
   var lifetimeFocusedClosedMs = 0;    // focused time from finished sessions
   var coinSeq = 0;
 
@@ -282,6 +286,76 @@
     emit('coin', { entry: Object.assign({}, entry), totalCoins: totalCoins, sessionCoins: sessionCoins });
   }
 
+  /* ---------- Spending (Phase 10 — Focus World) ------------------------ */
+
+  /** The spendable balance: everything earned, minus everything spent. */
+  function availableCoins() {
+    var balance = totalCoins - spentCoins;
+    return balance > 0 ? balance : 0;
+  }
+
+  /** Has this purchase already been paid for? (idempotency guard) */
+  function entryForPurchase(purchaseId) {
+    if (!purchaseId) return null;
+    var wanted = 'wp-' + purchaseId;
+    for (var index = 0; index < ledger.length; index += 1) {
+      var entry = ledger[index];
+      if (entry.id === wanted || entry.purchaseId === purchaseId) return entry;
+    }
+    return null;
+  }
+
+  /**
+   * Spend coins on the world (Phase 10). Spending writes a NEGATIVE
+   * WORLD_PURCHASE entry into the very same ledger that focused time pays
+   * into, so the balance can never drift away from the truth:
+   *
+   *     available = earned − spent
+   *
+   * Every purchase carries a stable `purchaseId`. Calling this twice with
+   * the same id returns the first entry untouched, so a refresh (or a retried
+   * sync) can never charge the user twice. A purchase that would push the
+   * balance below zero is refused outright and no ledger entry is created.
+   */
+  function spend(amount, meta) {
+    meta = meta || {};
+
+    var existing = entryForPurchase(meta.purchaseId);
+    if (existing) return Object.assign({}, existing);
+
+    var coins = Math.floor(Number(amount));
+    if (!isFinite(coins) || coins <= 0) return null;
+    if (coins > availableCoins()) return null;   // never allow a negative balance
+
+    coinSeq += 1;
+    var purchaseId = meta.purchaseId || ('spend-' + coinSeq);
+    var entry = {
+      id: 'wp-' + purchaseId,
+      purchaseId: purchaseId,
+      type: 'WORLD_PURCHASE',
+      amount: -coins,
+      timestamp: nowMs(),
+      sessionId: null,
+      focusedSeconds: 0,
+      rule: COIN_RULE,
+      ref: meta.ref || null,
+      label: meta.label || '',
+    };
+
+    ledger.push(entry);
+    spentCoins += coins;
+
+    emit('coin', {
+      entry: Object.assign({}, entry),
+      totalCoins: totalCoins,
+      spentCoins: spentCoins,
+      availableCoins: availableCoins(),
+    });
+    render();
+    emit('change', getState());
+    return Object.assign({}, entry);
+  }
+
   /* ---------- The day --------------------------------------------------- */
 
   function rollover(now) {
@@ -462,6 +536,10 @@
       focusRating: rating ? rating.label : null,
       focusRatingKey: rating ? rating.key : null,
       totalCoinsEarned: totalCoins,
+      totalCoinsSpent: spentCoins,
+      availableCoins: availableCoins(),
+      lifetimeFocusedMs: lifetimeFocusedMs(attention),
+      lifetimeFocusedMinutes: Math.floor(lifetimeFocusedMs(attention) / 60000),
       currentState: attention.state || 'unknown',
 
       /* ---- detail ---- */
@@ -548,10 +626,11 @@
     source = source || {};
 
     var entries = (source.ledger || []).map(function (entry) {
+      var amount = Math.floor(entry.amount || 0);   // negative = a world purchase
       return {
         id: String(entry.id),
-        type: entry.type || 'FOCUSED_TIME',
-        amount: Math.max(0, Math.floor(entry.amount || 0)),
+        type: entry.type || (amount < 0 ? 'WORLD_PURCHASE' : 'FOCUSED_TIME'),
+        amount: amount,
         timestamp: safeMs(entry.timestamp),
         sessionId: entry.sessionId || null,
         focusedSeconds: Math.max(0, Math.floor(entry.focusedSeconds || 0)),
@@ -560,7 +639,14 @@
     });
 
     ledger = entries;
-    totalCoins = entries.reduce(function (sum, entry) { return sum + entry.amount; }, 0);
+    // Earned coins fund awards and can never be un-earned: spending lives in
+    // its own negative entries, and the balance is earned − spent.
+    totalCoins = entries.reduce(function (sum, entry) {
+      return entry.amount > 0 ? sum + entry.amount : sum;
+    }, 0);
+    spentCoins = entries.reduce(function (sum, entry) {
+      return entry.amount < 0 ? sum - entry.amount : sum;
+    }, 0);
     coinSeq = entries.length;
 
     lifetimeFocusedClosedMs = safeMs(source.lifetimeFocusedClosedMs);
@@ -681,7 +767,11 @@
     setText('dash-sessions', String(day.sessions));
     setText('dash-longest', minutesText(day.longestFocusedMs));
     setText('dash-average', minutesText(day.averageFocusedMs));
-    setText('dash-coins', String(state.totalCoinsEarned));
+    // The balance you can actually spend (earned − spent). `dash-coins-earned`
+    // keeps the lifetime total visible so the two can never be confused.
+    setText('dash-coins', String(state.availableCoins));
+    setText('dash-coins-earned', String(state.totalCoinsEarned));
+    setText('dash-coins-spent', String(state.totalCoinsSpent));
     setText('dash-coins-today', '+' + day.coins);
 
     // Today's goal.
@@ -795,6 +885,7 @@
     stopTicker();
     ledger = [];
     totalCoins = 0;
+    spentCoins = 0;
     lifetimeFocusedClosedMs = 0;
     coinSeq = 0;
     sessionActive = false;
@@ -840,6 +931,8 @@
     getLedger: getLedger,
     getLastSession: getLastSession,
     hydrate: hydrate,
+    spend: spend,
+    availableCoins: availableCoins,
     setDailyGoalMinutes: setDailyGoalMinutes,
     getSessionSnapshot: getSessionSnapshot,
     peekSession: peekSession,

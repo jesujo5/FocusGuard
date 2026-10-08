@@ -72,7 +72,7 @@
           <span class="streak-chip__icon" aria-hidden="true">🔥</span>
           <span><strong>0</strong> day streak</span>
         </div>
-        <p class="sidebar__note">Phase 4 · Camera foundation</p>
+        <p class="sidebar__note">Phase 9 · Local storage &amp; cloud sync</p>
       </div>
     </aside>
 
@@ -92,6 +92,13 @@
         </div>
 
         <div class="topbar__meta">
+          <!-- Cloud sync status — owned by js/sync.js. Clicking opens the account panel. -->
+          <button class="sync-chip" type="button" data-sync-pill data-auth-open
+                  data-sync-state="local" aria-label="Cloud sync status" title="Cloud: Local">
+            <span class="sync-chip__dot" data-sync-dot aria-hidden="true"></span>
+            <span class="sync-chip__label">Cloud: <strong data-sync-status>Local</strong></span>
+          </button>
+
           <!-- Real-world clock — owned by js/clock.js, never by timer.js -->
           <div class="clock" id="liveClock">
             <span class="clock__time" data-clock-time>--:--:--</span>
@@ -103,7 +110,8 @@
           <button class="icon-btn" type="button" data-fullscreen-toggle aria-label="Enter full screen" title="Full screen">
             <span aria-hidden="true" data-fullscreen-icon>⛶</span>
           </button>
-          <div class="avatar" title="Guest user">G</div>
+          <button class="avatar" type="button" data-auth-open data-auth-avatar
+                  title="Local mode — not signed in" aria-label="Account">G</button>
         </div>
       </header>
 
@@ -160,6 +168,9 @@
             <h2 class="card__title">Focus Coins</h2>
             <div class="stat-icon" aria-hidden="true">◈</div>
             <p class="stat-value" id="coinValue" data-engine="dash-coins">0</p>
+            <p class="muted small">Available to spend. Earned
+              <strong data-engine="dash-coins-earned">0</strong> · spent
+              <strong data-engine="dash-coins-spent">0</strong>.</p>
             <p class="muted small">1 focused minute = 1 Focus Coin. Breaks, pauses and
               distraction time never earn coins.</p>
             <hr class="divider" />
@@ -185,7 +196,7 @@
           <article class="card card--stat">
             <h3 class="card__title">Sessions today</h3>
             <p class="stat-value" id="statSessions" data-engine="dash-sessions">0</p>
-            <p class="muted small">Finished in this tab</p>
+            <p class="muted small">Stored on this device</p>
           </article>
           <article class="card card--stat">
             <h3 class="card__title">Longest focus</h3>
@@ -271,18 +282,18 @@
           <article class="card span-4">
             <div class="card__head">
               <h2 class="card__title">My World</h2>
-              <span class="pill pill--soft">Level 1</span>
+              <span class="pill pill--soft" data-world-level>Level 1</span>
             </div>
-            <div class="world-preview" aria-label="Preview of future personal world">
-              <span class="world-preview__hill world-preview__hill--back"></span>
-              <span class="world-preview__hill world-preview__hill--front"></span>
-              <span class="world-preview__tree" style="left: 24%"></span>
-              <span class="world-preview__tree world-preview__tree--small" style="left: 62%"></span>
-              <span class="world-preview__sun" aria-hidden="true"></span>
-              <span class="world-preview__locked">Preview locked · Phase 4</span>
+            <button class="world-preview-btn" type="button" data-goto="world" aria-label="Open My World">
+              <span class="world-preview" data-world-preview aria-hidden="true"></span>
+            </button>
+            <div class="world-preview-meta">
+              <span class="muted small" data-world-grid>5 × 5</span>
+              <span class="muted small"><strong data-world-count>0</strong> objects</span>
+              <span class="muted small">🪙 <strong data-world-coins>0</strong></span>
             </div>
-            <p class="muted small">Your world grows as you study. Building tools unlock later.</p>
-            <button class="btn btn--ghost" data-goto="world">Visit My World →</button>
+            <p class="muted small">Your world grows as you study. Study more, earn Focus Coins, build your world.</p>
+            <button class="btn btn--ghost" data-goto="world">Open World →</button>
           </article>
         </div>
 
@@ -313,17 +324,19 @@
               <table class="table">
                 <thead>
                   <tr>
+                    <th>When</th>
                     <th>Subject</th>
                     <th>Duration</th>
-                    <th>Focus</th>
+                    <th>Focused</th>
+                    <th>Distractions</th>
                     <th>Pomodoros</th>
+                    <th>Coins</th>
                     <th>Status</th>
-                    <th>When</th>
                   </tr>
                 </thead>
-                <tbody data-session-history>
+                <tbody data-session-history data-history-limit="5">
                   <tr class="table__empty">
-                    <td colspan="6">No sessions yet — your study history will appear here.</td>
+                    <td colspan="8">No sessions yet — your study history will appear here.</td>
                   </tr>
                 </tbody>
               </table>
@@ -334,6 +347,21 @@
 
       <!-- ---------- VIEW: STUDY SESSION ---------- -->
       <section class="view" id="view-session">
+        <!-- Recovery: an unfinished local session, offered after a reload.
+             FocusGuard never continues camera monitoring on its own. -->
+        <article class="card card--recovery" data-recovery hidden>
+          <div class="card__head">
+            <h2 class="card__title">Previous session found</h2>
+            <span class="pill pill--muted">Not resumed automatically</span>
+          </div>
+          <p class="muted small" data-recovery-text>—</p>
+          <div class="recovery-actions">
+            <button class="btn btn--primary" type="button" data-recovery-resume>Resume</button>
+            <button class="btn btn--ghost" type="button" data-recovery-end>End session</button>
+            <button class="btn btn--ghost" type="button" data-recovery-discard>Discard</button>
+          </div>
+        </article>
+
         <!-- Start a session, or watch the one that is running -->
         <div class="grid grid--twelve">
           <article class="card span-12">
@@ -500,27 +528,72 @@
         </div>
       </section>
 
-      <!-- ---------- VIEW: MY WORLD ---------- -->
+      <!-- ---------- VIEW: MY WORLD (Phase 10) ---------- -->
       <section class="view" id="view-world">
-        <div class="grid grid--twelve">
-          <article class="card span-8">
-            <div class="card__head">
-              <h2 class="card__title">My World</h2>
-              <span class="pill pill--soft">Phase 4</span>
+        <div class="world-head">
+          <div class="card__head">
+            <h2 class="card__title">My World</h2>
+            <span class="pill pill--soft" data-world-level>Level 1</span>
+          </div>
+          <div class="world-head__coins">
+            <span class="world-coin-badge" title="Focus Coins available to spend">
+              🪙 <strong data-world-coins>0</strong>
+            </span>
+            <span class="muted small">Earned <strong data-world-earned>0</strong> · Spent <strong data-world-spent>0</strong></span>
+          </div>
+        </div>
+
+        <div class="world-layout">
+          <div class="world-main">
+            <div class="world-controls" role="toolbar" aria-label="World controls">
+              <button class="btn btn--primary btn--sm" type="button" data-world-catalog-toggle
+                      aria-expanded="false" aria-controls="worldBuildPanel">Build</button>
+              <button class="btn btn--ghost btn--sm" type="button" data-world-mode="move" aria-pressed="false">Move</button>
+              <button class="btn btn--ghost btn--sm" type="button" data-world-action="rotate" title="Rotate the selected object 90°">Rotate ↻</button>
+              <button class="btn btn--ghost btn--sm" type="button" data-world-action="delete" title="Remove the selected object">Delete</button>
+              <button class="btn btn--ghost btn--sm" type="button" data-world-action="expand">Expand</button>
             </div>
-            <p class="lead">A personal space that grows from the time you spend focused.</p>
-            <div class="placeholder-block placeholder-block--tall">
-              <p>World building, decorations and progression unlock in a later phase.</p>
+
+            <p class="world-message muted small" data-world-message hidden role="status" aria-live="polite"></p>
+
+            <div class="world-stage-wrap">
+              <div class="world-stage" data-world-stage aria-label="Your world grid"></div>
+              <div class="world-empty" data-world-empty hidden>
+                <p class="world-empty__title">Your study world starts here.</p>
+                <p class="muted small">Every focused minute helps you build it.</p>
+                <button class="btn btn--primary btn--sm" type="button" data-world-catalog-toggle>Build your first object</button>
+              </div>
             </div>
-          </article>
-          <article class="card span-4">
-            <h3 class="card__title">Planned features</h3>
-            <ul class="feature-list">
-              <li>Growable scenery &amp; items</li>
-              <li>Coin-purchased decorations</li>
-              <li>Customisable layout</li>
-            </ul>
-          </article>
+
+            <!-- Build panel (Part 14/52): categories, costs, unlock state -->
+            <div class="world-panel" id="worldBuildPanel" data-world-panel hidden>
+              <div class="card__head">
+                <h3 class="card__title">Build</h3>
+                <button class="btn btn--ghost btn--sm" type="button" data-world-catalog-toggle>Close</button>
+              </div>
+              <p class="muted small">Locked items unlock as your focused study time grows.</p>
+              <div class="world-catalog" data-world-catalog></div>
+            </div>
+          </div>
+
+          <aside class="world-side">
+            <div class="card__head"><h3 class="card__title">Selection</h3></div>
+            <div class="world-selection" data-world-selection>
+              <p class="world-selection__name" data-world-selection-name>Nothing selected</p>
+              <p class="muted small" data-world-selection-meta>Pick an item to build, or tap an object to edit it.</p>
+              <div class="world-selection__buttons" data-world-selection-actions hidden>
+                <button class="btn btn--ghost btn--sm" type="button" data-world-action="move">Move</button>
+                <button class="btn btn--ghost btn--sm" type="button" data-world-action="rotate">Rotate ↻</button>
+                <button class="btn btn--ghost btn--sm" type="button" data-world-action="delete">Remove</button>
+                <button class="btn btn--ghost btn--sm" type="button" data-world-action="clear-selection">Deselect</button>
+              </div>
+            </div>
+
+            <div class="card__head"><h3 class="card__title">World statistics</h3></div>
+            <div class="world-stats" data-world-stats></div>
+            <p class="muted small" data-world-level-caption>Your world grows as you study.</p>
+            <p class="muted small" data-world-unlock>—</p>
+          </aside>
         </div>
       </section>
 
@@ -546,30 +619,35 @@
           <article class="card span-12">
             <div class="card__head">
               <h2 class="card__title">History</h2>
-              <span class="pill pill--soft">In memory</span>
+              <span class="pill pill--soft" data-sync-state="local">Saved</span>
             </div>
-            <p class="lead">Every finished study session, kept in memory for this browser tab.</p>
+            <p class="lead">Every finished study session, restored from local storage —
+              and from your account once cloud sync has run.</p>
             <div class="table-wrap">
               <table class="table">
                 <thead>
                   <tr>
+                    <th>When</th>
                     <th>Subject</th>
                     <th>Duration</th>
-                    <th>Focus</th>
+                    <th>Focused</th>
+                    <th>Distractions</th>
                     <th>Pomodoros</th>
+                    <th>Coins</th>
                     <th>Status</th>
-                    <th>When</th>
                   </tr>
                 </thead>
                 <tbody data-session-history>
                   <tr class="table__empty">
-                    <td colspan="6">No sessions recorded yet. Completed sessions will be listed here.</td>
+                    <td colspan="8">No sessions recorded yet. Completed sessions will be listed here.</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <p class="muted small">
-              <strong data-session-history-count>0</strong> session(s) stored in memory for this tab.
+              <strong data-session-history-count>0</strong> session(s) stored for this account.
+              Cloud status: <strong data-sync-status>Local</strong> · pending uploads:
+              <strong data-sync-pending>0</strong>.
             </p>
           </article>
         </div>
@@ -609,8 +687,10 @@
                      step="1" value="15" data-timer-setting="longBreak" />
             </div>
             <div class="setting-row">
-              <span>Daily goal</span>
-              <span class="pill pill--muted">2 hours</span>
+              <span>Daily goal (minutes)</span>
+              <input class="field__input field__input--num" type="number" min="15" max="720"
+                     step="15" value="120" data-setting="dailyGoalMinutes"
+                     aria-label="Daily focus goal in minutes" />
             </div>
             <div class="setting-row">
               <span>Attention grace period (s)</span>
@@ -625,11 +705,37 @@
             </p>
           </article>
         </div>
+          <!-- Phase 9: account + cloud sync. Owned by js/auth.js and js/sync.js. -->
+          <article class="card span-12" data-auth-state="unavailable">
+            <div class="card__head">
+              <h2 class="card__title">Account &amp; cloud sync</h2>
+              <span class="pill pill--muted" data-auth-status>Local only — log in to sync</span>
+            </div>
+            <p class="muted small">
+              FocusGuard always saves to this device first — offline, no account required.
+              Signing in adds a cloud copy (Supabase) so your sessions, Focus Coins,
+              history and settings follow you to another device.
+            </p>
+            <div class="sync-meta">
+              <span class="sync-meta__row">Cloud: <strong data-sync-status>Local</strong></span>
+              <span class="sync-meta__row">Pending uploads: <strong data-sync-pending>0</strong></span>
+              <span class="sync-meta__row">Last sync: <strong data-sync-last>never</strong></span>
+              <span class="sync-meta__row">Local data namespace: <strong data-sync-namespace>local</strong></span>
+              <span class="sync-meta__row">Signed in as: <strong data-sync-account>Not signed in</strong></span>
+            </div>
+            <p class="muted small" data-sync-detail>Local only — log in to sync your data.</p>
+            <button class="btn btn--primary" type="button" data-auth-open>Sign in / create account</button>
+            <p class="muted small" data-auth-hint hidden>
+              Cloud sync is not configured yet. Add your Supabase project URL and anon
+              public key (README → Phase 9), then run supabase/schema.sql.
+            </p>
+          </article>
+        </div>
       </section>
 
       <footer class="app-footer">
-        <span>FocusGuard · Phase 4 · Interface &amp; camera foundation</span>
-        <span class="muted">Static frontend — no backend, no tracking.</span>
+        <span>FocusGuard · Phase 9 · Persistence, accounts &amp; cloud sync</span>
+        <span class="muted">Local-first · camera data never leaves the browser.</span>
       </footer>
     </main>
   </div>
@@ -790,6 +896,79 @@
     </div>
   </div>
 
+  <!-- Account panel (Phase 9): a compact modal rather than a whole page.
+       Owned by js/auth.js; passwords go straight to Supabase Auth. -->
+  <div class="modal" data-auth-modal hidden role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <div class="modal__card modal__card--auth">
+      <div class="card__head">
+        <h2 class="card__title" id="authTitle">FocusGuard account</h2>
+        <span class="pill pill--muted" data-auth-status>Local only — log in to sync</span>
+      </div>
+
+      <p class="muted small">
+        Your data is always saved on this device. An account adds cloud backup so
+        sessions, Focus Coins and settings stay with you.
+      </p>
+
+      <!-- Logged out -->
+      <div data-auth-out>
+        <form class="auth-form" data-auth-form novalidate>
+          <label class="field">
+            <span class="field__label">Email</span>
+            <input class="field__input" type="email" autocomplete="email"
+                   placeholder="you@example.com" data-auth-field="email" />
+          </label>
+          <label class="field">
+            <span class="field__label">Password</span>
+            <input class="field__input" type="password" autocomplete="current-password"
+                   placeholder="At least 6 characters" data-auth-field="password" />
+          </label>
+          <div class="auth-form__actions">
+            <button class="btn btn--primary" type="submit" data-auth-submit="login">Log in</button>
+            <button class="btn btn--ghost" type="button" data-auth-submit="signup">Create account</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Logged in -->
+      <div data-auth-in hidden>
+        <dl class="summary-list">
+          <div class="summary-list__row"><dt>Signed in as</dt><dd data-auth-email>—</dd></div>
+          <div class="summary-list__row"><dt>Cloud status</dt><dd><span data-sync-status>Local</span></dd></div>
+          <div class="summary-list__row"><dt>Pending uploads</dt><dd data-sync-pending>0</dd></div>
+          <div class="summary-list__row"><dt>Last sync</dt><dd data-sync-last>never</dd></div>
+        </dl>
+        <button class="btn btn--ghost" type="button" data-auth-logout>Log out</button>
+      </div>
+
+      <p class="auth-message" data-auth-message hidden></p>
+      <p class="muted small" data-auth-hint hidden>
+        Cloud sync needs a Supabase project URL and anon public key — see README, Phase 9.
+      </p>
+
+      <div class="modal__actions">
+        <button class="btn btn--ghost" type="button" data-auth-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- World delete confirmation (Part 19): never a browser alert -->
+  <div class="modal" id="worldConfirm" data-world-confirm hidden role="dialog" aria-modal="true" aria-labelledby="worldConfirmTitle">
+    <div class="modal__card">
+      <div class="card__head">
+        <h2 class="card__title" id="worldConfirmTitle">Remove this object?</h2>
+      </div>
+      <p class="muted" data-world-confirm-text>—</p>
+      <div class="modal__actions">
+        <button class="btn btn--ghost" type="button" data-world-confirm-no>Cancel</button>
+        <button class="btn btn--primary" type="button" data-world-confirm-yes>Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Non-intrusive feedback line (never a browser alert) -->
+  <div class="toast" data-toast hidden role="status" aria-live="polite"></div>
+
   <!-- Logic first, then each UI controller, then the app shell. -->
   <script src="js/timer.js" defer></script>
   <script src="js/timer-ui.js" defer></script>
@@ -801,6 +980,16 @@
   <script src="js/attention.js" defer></script>
   <script src="js/distraction.js" defer></script>
   <script src="js/focusEngine.js" defer></script>
+  <!-- Phase 10: Focus World — catalog, state, renderer, controls -->
+  <script src="js/worldCatalog.js" defer></script>
+  <script src="js/world.js" defer></script>
+  <script src="js/worldRenderer.js" defer></script>
+  <script src="js/worldUI.js" defer></script>
+  <!-- Phase 9: configuration + cloud adapter, local database, accounts, sync -->
+  <script src="js/supabase.js" defer></script>
+  <script src="js/localStore.js" defer></script>
+  <script src="js/auth.js" defer></script>
+  <script src="js/sync.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
