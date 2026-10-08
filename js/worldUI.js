@@ -268,8 +268,9 @@
     renderStats(state);
     renderEmpty(state);
 
-    // Mode buttons reflect the current mode.
-    qa('[data-world-mode]').forEach(function (btn) {
+    // Mode buttons reflect the current mode. Scope to buttons: the grid also
+    // carries a data-world-mode attribute as a CSS hook.
+    qa('button[data-world-mode]').forEach(function (btn) {
       var active = btn.dataset.worldMode === mode;
       btn.classList.toggle('is-active', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
@@ -464,8 +465,8 @@
       });
     }
 
-    on('[data-world-mode="move"]', 'click', function () { setMode('move'); });
-    on('[data-world-mode="browse"]', 'click', function () { setMode('browse'); });
+    on('button[data-world-mode="move"]', 'click', function () { setMode('move'); });
+    on('button[data-world-mode="browse"]', 'click', function () { setMode('browse'); });
     on('[data-world-action="rotate"]', 'click', handleRotate);
     on('[data-world-action="move"]', 'click', handleMoveSelected);
     on('[data-world-action="delete"]', 'click', openRemoveConfirm);

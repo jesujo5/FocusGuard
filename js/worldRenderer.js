@@ -126,8 +126,10 @@
       cell.appendChild(glyph);
     });
 
+    // NOTE: `data-world-mode` here is a styling hook for the grid. The mode
+    // buttons carry the same attribute name, so js/worldUI.js only ever
+    // queries `button[data-world-mode]` to keep the two apart.
     grid.dataset.worldMode = options.mode || 'browse';
-    grid.dataset.worldEmpty = String((world.objects || []).length === 0);
     grid.dataset.gridSize = String(size);
     return grid;
   }

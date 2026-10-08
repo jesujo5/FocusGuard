@@ -1811,6 +1811,8 @@ body.is-fullscreen { overflow: hidden; }
   backdrop-filter: blur(2px);
 }
 .world-empty__title { font-weight: 600; }
+/* An author `display` beats the UA [hidden] rule, so hide these explicitly. */
+.world-empty[hidden] { display: none; }
 
 /* --- Build panel -------------------------------------------------------- */
 .world-panel {
@@ -1870,6 +1872,7 @@ body.is-fullscreen { overflow: hidden; }
 }
 .world-selection__name { margin: 0 0 4px; font-weight: 600; }
 .world-selection__buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.world-selection__buttons[hidden] { display: none; }
 .world-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
