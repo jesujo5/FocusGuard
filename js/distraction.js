@@ -77,6 +77,9 @@
   /** The attention states this engine can report. */
   var STATE = {
     FOCUSED: 'focused',
+    // Prompt 10.5 — a *different* way of being focused: a stable, moderate
+    // downward posture while writing or reading (notebook mode only).
+    DOWNWARD_STUDY: 'downward-study',
     GRACE: 'grace',
     DISTRACTED: 'distracted',
     FACE_MISSING: 'face-missing',
@@ -89,6 +92,7 @@
    */
   var LABELS = {
     focused: 'Focused',
+    'downward-study': 'Downward study',
     grace: 'Attention drifting',
     distracted: 'Distracted',
     'face-missing': 'Face not detected',
@@ -104,6 +108,7 @@
   /** Fixed second line of the status row (the distracted one is live). */
   var DETAILS = {
     focused: '',
+    'downward-study': 'Notebook posture',
     grace: 'Returning to screen…',
     distracted: '',
     'face-missing': '',
@@ -122,6 +127,33 @@
 
   var TURN_DIRECTIONS = ['left', 'right', 'up', 'down'];
 
+  /**
+   * Attention modes (Prompt 10.5).
+   *   SCREEN    the historic behaviour: focus needs a screen-facing head.
+   *   NOTEBOOK  also accepts a *moderate* downward posture as studying, so
+   *             writing on paper or reading a book is not called distracted.
+   */
+  var MODES = { SCREEN: 'screen', NOTEBOOK: 'notebook' };
+  var MODE_LABELS = {
+    screen: 'Screen study',
+    notebook: 'Notebook / downward study',
+  };
+
+  /**
+   * Notebook mode accepts a moderate downward pitch as a study posture.
+   * Past this many degrees the head is too far down (chin on chest, phone
+   * below the desk…) to call it studying, so it falls back to the normal
+   * head-away handling. js/attention.js only reports DOWN beyond ~20°, so
+   * this widens — never replaces — that reading.
+   */
+  var NOTEBOOK_PITCH_MAX_DEG = 48;
+
+  /**
+   * A very short face loss — the kind you get while leaning over a page —
+   * is tolerated in notebook mode instead of counting as face-missing.
+   */
+  var DEFAULT_PARTIAL_FACE_HOLD_MS = 1500;
+
   /* ---------- Module state ---------- */
 
   var state = STATE.UNKNOWN;
@@ -129,7 +161,15 @@
 
   var awaySince = null;         // start of the current not-facing episode
   var awayReason = null;        // HEAD_AWAY | FACE_MISSING (current condition)
-  var forwardSince = null;      // when the head started facing forward again
+  var postureSince = null;      // when the current accepted posture began
+  var acceptedPosture = null;   // 'forward' | 'downward' (the posture being timed)
+
+  // Prompt 10.5 — attention mode + the extra signals it needs.
+  var attentionMode = MODES.SCREEN;
+  var partialFaceHoldMs = DEFAULT_PARTIAL_FACE_HOLD_MS;
+  var missingHoldSince = null;   // when the face first left the frame
+  var lastPosture = 'none';      // forward | downward | away | none
+  var downwardCandidate = false; // stable downward posture, not yet focused
 
   // Measurement gate + one time bucket per attention category. Every
   // measured millisecond lands in exactly one bucket, or in none at all
@@ -161,7 +201,7 @@
   var tickId = null;
   var attached = false;
   var unsubscribers = [];
-  var handlers = { change: [], event: [] };
+  var handlers = { change: [], event: [], mode: [] };
   var lastSignature = '';
   var eventSeq = 0;
 
@@ -221,6 +261,34 @@
     var attention = module('attention');
     if (!attention || typeof attention.getState !== 'function') return 'unknown';
     return attention.getState().direction || 'unknown';
+  }
+
+  /** Latest smoothed pitch (degrees, + = looking up) from attention.js. */
+  function readPitch() {
+    var attention = module('attention');
+    if (!attention || typeof attention.getState !== 'function') return null;
+    var snapshot = attention.getState();
+    return typeof snapshot.pitch === 'number' ? snapshot.pitch : null;
+  }
+
+  /**
+   * The study posture the *current mode* accepts as a focus candidate.
+   *   'forward'  the head is aimed at the screen
+   *   'downward' a moderate downward pitch (notebook mode only)
+   *   'away'     a deliberate turn, or too steep a downward angle
+   *   'none'     no face / no usable reading
+   * Only the interpretation changes with the mode: the raw signals still
+   * come from the same camera → faceDetection → attention pipeline.
+   */
+  function readPosture(direction) {
+    if (direction === 'forward') return 'forward';
+    if (attentionMode === MODES.NOTEBOOK && direction === 'down') {
+      var pitch = readPitch();
+      if (pitch !== null && Math.abs(pitch) <= NOTEBOOK_PITCH_MAX_DEG) {
+        return 'downward';
+      }
+    }
+    return 'away';
   }
 
   /**
@@ -285,6 +353,9 @@
   /** Which bucket an attention state belongs in. */
   function bucketFor(stateName) {
     if (stateName === STATE.FOCUSED) return 'focused';
+    // Downward study is real focused time — it just arrived through a
+    // different posture. It feeds the same bucket as FOCUSED.
+    if (stateName === STATE.DOWNWARD_STUDY) return 'focused';
     if (stateName === STATE.DISTRACTED) return 'distracted';
     if (stateName === STATE.FACE_MISSING) return 'face-missing';
     // GRACE only lasts a few seconds and UNKNOWN has no verdict at all, so
@@ -389,7 +460,7 @@
   function setState(next, now) {
     if (next === state) return;
 
-    if (next === STATE.FOCUSED) {
+    if (next === STATE.FOCUSED || next === STATE.DOWNWARD_STUDY) {
       closeDistraction(now);          // the away episode is over
     }
 
@@ -423,31 +494,55 @@
     if (detection === 'unknown') {
       // Model loading/failed or no verdict yet: say so instead of guessing.
       clearEpisode(now);
-      forwardSince = null;
+      postureSince = null;
       setState(STATE.UNKNOWN, now);
       publish(now);
       return;
     }
 
     var direction = readDirection();
-    var facing = detection === 'present' && direction === 'forward';
+    var posture = detection === 'present' ? readPosture(direction) : 'none';
+    lastPosture = posture;
 
-    if (facing) {
+    // A stable study posture — facing the screen, or (in notebook mode) a
+    // moderate downward posture — is a focus candidate. Nothing about the
+    // session, the Pomodoro, the score or the coins is touched here.
+    if (posture === 'forward' || posture === 'downward') {
       awaySince = null;
       awayReason = null;
-      if (forwardSince === null) forwardSince = now;
+      missingHoldSince = null;
 
-      if (state !== STATE.FOCUSED && now - forwardSince >= stableMs) {
-        setState(STATE.FOCUSED, now);
+      // The stable-frame gate is per *posture*: switching between facing the
+      // screen and looking down restarts it, so neither direction is ever
+      // accepted from a single flicker of the head.
+      if (postureSince === null || acceptedPosture !== posture) postureSince = now;
+      acceptedPosture = posture;
+      var stableEnough = now - postureSince >= stableMs;
+      var focusedAlready = state === STATE.FOCUSED || state === STATE.DOWNWARD_STUDY;
+
+      if (posture === 'forward') {
+        // Back at the screen: an already-focused interval continues; a fresh
+        // one waits for the stable window, exactly as before Prompt 10.5.
+        if (focusedAlready || stableEnough) setState(STATE.FOCUSED, now);
+      } else if (stableEnough) {
+        // A downward posture only becomes studying after it has held steady.
+        setState(STATE.DOWNWARD_STUDY, now);
+      } else if (focusedAlready) {
+        // The candidate phase: not focused, not a drift — unclassified time.
+        setState(STATE.GRACE, now);
       }
+
+      downwardCandidate = posture === 'downward' && state !== STATE.DOWNWARD_STUDY;
       publish(now);
       return;
     }
 
-    forwardSince = null;
+    postureSince = null;
+    acceptedPosture = null;
+    downwardCandidate = false;
 
     // Face is there but no trustworthy direction yet — stay neutral.
-    if (detection === 'present' && direction !== 'forward' && !isTurn(direction)) {
+    if (detection === 'present' && !isTurn(direction)) {
       clearEpisode(now);
       setState(STATE.UNKNOWN, now);
       publish(now);
@@ -456,6 +551,28 @@
 
     // Face missing is its own condition, and its own reason.
     var condition = detection === 'missing' ? REASON.FACE_MISSING : REASON.HEAD_AWAY;
+
+    // Partial-face tolerance (notebook mode): while writing/reading the face
+    // often half-leaves the frame for a moment. Such a short loss is held
+    // back — no reading, so no verdict — instead of counting as face-missing.
+    if (condition === REASON.FACE_MISSING) {
+      if (missingHoldSince === null) missingHoldSince = now;
+    } else {
+      missingHoldSince = null;
+    }
+
+    if (condition === REASON.FACE_MISSING &&
+        attentionMode === MODES.NOTEBOOK &&
+        missingHoldSince !== null &&
+        now - missingHoldSince < partialFaceHoldMs) {
+      awaySince = null;
+      awayReason = null;
+      clearEpisode(now);
+      setState(STATE.UNKNOWN, now);
+      publish(now);
+      return;
+    }
+
     if (awaySince === null) {
       awaySince = now;
       awayReason = condition;
@@ -483,7 +600,7 @@
     freezeBucket(now);
     awaySince = null;
     awayReason = null;
-    forwardSince = null;
+    postureSince = null;
     state = STATE.UNKNOWN;
     publish(now);
   }
@@ -500,6 +617,9 @@
       lastSessionData = null;
       measuring = measurementOpen();
       if (state !== STATE.FOCUSED) awaySince = now;   // fresh away episode
+      postureSince = null;
+      acceptedPosture = null;
+      missingHoldSince = null;
       bucket = currentBucket();
       bucketSince = now;
     } else {
@@ -510,7 +630,7 @@
       resetAccumulators();
       awaySince = null;
       awayReason = null;
-      forwardSince = null;
+      postureSince = null;
       bucket = null;
       bucketSince = now;
     }
@@ -554,6 +674,14 @@
       headDirection: readDirection(),
       faceDetection: detection,
 
+      // Prompt 10.5 — attention mode + the posture it is interpreting.
+      attentionMode: attentionMode,
+      attentionModeLabel: MODE_LABELS[attentionMode],
+      posture: lastPosture,
+      downwardCandidate: downwardCandidate,
+      notebookPitchMaxDeg: NOTEBOOK_PITCH_MAX_DEG,
+      partialFaceHoldMs: partialFaceHoldMs,
+
       measuring: measuring,
       gates: {
         sessionPaused: gates.sessionPaused, timerPaused: gates.timerPaused,
@@ -570,7 +698,8 @@
       hasOpenEvent: !!openEvent,
 
       isImplemented: true,
-      signature: [state, awayReason || '-', tracking ? 'tracking' : 'status'].join('|'),
+      signature: [state, awayReason || '-', tracking ? 'tracking' : 'status',
+        attentionMode].join('|'),
     };
   }
 
@@ -605,6 +734,9 @@
       tracking: tracking,
       monitoring: cameraActive,
       sessionActive: sessionActive,
+
+      // The mode the session ran in — kept for the in-memory snapshot.
+      attentionMode: attentionMode,
     };
   }
 
@@ -750,6 +882,35 @@
     return graceMs;
   }
 
+  /**
+   * Switch the attention mode (Prompt 10.5). Purely an interpretation
+   * change: the pipeline, the session, the timer, the score and the coins
+   * are all left exactly as they are. The posture timer is restarted so a
+   * switch mid-glance gets the same stable-frame gate as any other posture.
+   */
+  function setAttentionMode(mode) {
+    var next = mode === MODES.NOTEBOOK ? MODES.NOTEBOOK : MODES.SCREEN;
+    if (next === attentionMode) return attentionMode;
+
+    attentionMode = next;
+    postureSince = null;
+    acceptedPosture = null;
+    missingHoldSince = null;
+    downwardCandidate = false;
+
+    emit('mode', { mode: attentionMode, label: MODE_LABELS[attentionMode] });
+    react();
+    return attentionMode;
+  }
+
+  function setPartialFaceHold(ms) {
+    var parsed = parseFloat(ms);
+    if (!isFinite(parsed)) parsed = DEFAULT_PARTIAL_FACE_HOLD_MS;
+    partialFaceHoldMs = clamp(Math.round(parsed), 0, 10000);
+    react();
+    return partialFaceHoldMs;
+  }
+
   function onPageHide(event) {
     if (event && event.persisted) return;     // bfcache keeps the page alive
     var now = Date.now();
@@ -760,7 +921,12 @@
     closeDistraction(now);
     freezeBucket(now);
     awaySince = null;
-    forwardSince = null;
+    awayReason = null;
+    postureSince = null;
+    acceptedPosture = null;
+    missingHoldSince = null;
+    downwardCandidate = false;
+    lastPosture = 'none';
     state = STATE.UNKNOWN;
     render();
   }
@@ -779,7 +945,11 @@
     lastSessionData = null;
     awaySince = null;
     awayReason = null;
-    forwardSince = null;
+    postureSince = null;
+    acceptedPosture = null;
+    missingHoldSince = null;
+    downwardCandidate = false;
+    lastPosture = 'none';
     bucket = null;
     bucketSince = now;
     state = STATE.UNKNOWN;
@@ -810,6 +980,8 @@
     STATE: STATE,
     REASON: REASON,
     LABELS: LABELS,
+    MODES: MODES,
+    MODE_LABELS: MODE_LABELS,
     DEFAULT_GRACE_SECONDS: DEFAULT_GRACE_S,
     GRACE_MIN_SECONDS: GRACE_MIN_S,
     GRACE_MAX_SECONDS: GRACE_MAX_S,
@@ -824,9 +996,18 @@
     getEvents: function () { return events.map(cloneEvent); },
     getOpenEvent: function () { return openEvent ? cloneEvent(openEvent) : null; },
     getConfig: function () {
-      return { graceMs: graceMs, stableMs: stableMs, tickMs: TICK_MS, tracking: tracking };
+      return {
+        graceMs: graceMs, stableMs: stableMs, tickMs: TICK_MS, tracking: tracking,
+        attentionMode: attentionMode,
+        notebookPitchMaxDeg: NOTEBOOK_PITCH_MAX_DEG,
+        partialFaceHoldMs: partialFaceHoldMs,
+      };
     },
     setGracePeriod: setGracePeriod,
+
+    getAttentionMode: function () { return attentionMode; },
+    setAttentionMode: setAttentionMode,
+    setPartialFaceHold: setPartialFaceHold,
 
     on: on,
     render: render,

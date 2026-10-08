@@ -482,6 +482,25 @@
               <button class="btn btn--ghost" type="button" data-focus-open>Focus Mode</button>
             </div>
 
+            <!-- Prompt 10.5: how the camera should read your study posture -->
+            <div class="attention-mode" data-attention-block>
+              <div class="attention-mode__head">
+                <span class="field__label">Attention mode</span>
+                <span class="pill pill--soft" data-attention-mode-status>Screen study</span>
+              </div>
+              <div class="attention-mode__options" role="radiogroup" aria-label="Attention mode">
+                <label class="attention-mode__option">
+                  <input type="radio" name="attentionModeSession" value="screen" data-attention-mode checked />
+                  <span>Screen study</span>
+                </label>
+                <label class="attention-mode__option">
+                  <input type="radio" name="attentionModeSession" value="notebook" data-attention-mode />
+                  <span>Notebook / downward study</span>
+                </label>
+              </div>
+              <p class="muted small" data-attention-mode-help>Best when you study mainly from the laptop screen.</p>
+            </div>
+
             <div class="pomodoro-count">
               <span class="pomodoro-count__icon" aria-hidden="true">○</span>
               <span>Completed pomodoros today</span>
@@ -703,6 +722,29 @@
               calls it distracted. Applies to the live camera status and the next
               distraction record.
             </p>
+
+            <!-- Prompt 10.5: attention mode + sound alerts -->
+            <div class="attention-mode">
+              <div class="attention-mode__head">
+                <span class="field__label">Attention mode</span>
+                <span class="pill pill--soft" data-attention-mode-status>Screen study</span>
+              </div>
+              <div class="attention-mode__options" role="radiogroup" aria-label="Attention mode">
+                <label class="attention-mode__option">
+                  <input type="radio" name="attentionModeSettings" value="screen" data-attention-mode checked />
+                  <span>Screen study</span>
+                </label>
+                <label class="attention-mode__option">
+                  <input type="radio" name="attentionModeSettings" value="notebook" data-attention-mode />
+                  <span>Notebook / downward study</span>
+                </label>
+              </div>
+              <p class="muted small" data-attention-mode-help>Best when you study mainly from the laptop screen.</p>
+            </div>
+            <div class="setting-row">
+              <span>Attention sound alerts</span>
+              <input type="checkbox" class="switch" data-alert-setting="enabled" checked />
+            </div>
           </article>
         </div>
           <!-- Phase 9: account + cloud sync. Owned by js/auth.js and js/sync.js. -->
@@ -740,6 +782,9 @@
     </main>
   </div>
 
+  <!-- Prompt 10.5: in-page host for the Mini Focus Window fallback -->
+  <div class="mini-win-host-anchor" data-mini-host></div>
+
   <!-- Focus Mode: a distraction-minimised study screen ------------------- -->
   <div class="focus-mode" id="focusMode" data-focus-mode hidden>
     <div class="focus-mode__bar">
@@ -756,6 +801,8 @@
           <span aria-hidden="true" data-fullscreen-icon>⛶</span>
           <span data-fullscreen-text>Full screen</span>
         </button>
+        <button class="btn btn--ghost btn--sm" type="button" data-mini-open
+                title="Keep a small monitor visible while you study">Mini window</button>
       </div>
     </div>
 
@@ -805,6 +852,26 @@
           <button class="btn btn--primary" type="button" data-timer-toggle>Start</button>
           <button class="btn btn--ghost" type="button" data-session-pause>Pause session</button>
           <button class="btn btn--ghost" type="button" data-session-end>End session</button>
+        </div>
+
+        <!-- Prompt 10.5: quick switch — changes nothing but the reading -->
+        <div class="attention-mode attention-mode--quick">
+          <div class="attention-mode__head">
+            <span class="field__label">Attention mode</span>
+            <span class="pill pill--soft" data-attention-mode-status>Screen study</span>
+          </div>
+          <div class="attention-mode__options" role="radiogroup" aria-label="Attention mode">
+            <label class="attention-mode__option">
+              <input type="radio" name="attentionModeFocus" value="screen" data-attention-mode checked />
+              <span>Screen study</span>
+            </label>
+            <label class="attention-mode__option">
+              <input type="radio" name="attentionModeFocus" value="notebook" data-attention-mode />
+              <span>Notebook</span>
+            </label>
+          </div>
+          <button class="btn btn--ghost btn--sm" type="button" data-attention-quick-toggle>Notebook / downward study</button>
+          <p class="muted small" data-attention-mode-help>Best when you study mainly from the laptop screen.</p>
         </div>
 
         <p class="muted small">Completed pomodoros: <strong data-timer-count>0</strong></p>
@@ -979,6 +1046,9 @@
   <script src="js/faceDetection.js" defer></script>
   <script src="js/attention.js" defer></script>
   <script src="js/distraction.js" defer></script>
+  <script src="js/soundAlerts.js" defer></script>
+  <script src="js/attentionMode.js" defer></script>
+  <script src="js/miniWindow.js" defer></script>
   <script src="js/focusEngine.js" defer></script>
   <!-- Phase 10: Focus World — catalog, state, renderer, controls -->
   <script src="js/worldCatalog.js" defer></script>

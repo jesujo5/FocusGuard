@@ -564,6 +564,8 @@
       long_break_minutes: row.longBreakMinutes,
       auto_start_next: row.autoStartNext === true,
       sound_enabled: row.soundEnabled === true,
+      attention_mode: row.attentionMode === 'notebook' ? 'notebook' : 'screen',
+      alerts_enabled: row.alertsEnabled !== false,
       grace_seconds: row.graceSeconds,
       camera_preference: row.cameraPreference || 'ask',
       daily_goal_minutes: row.dailyGoalMinutes,
@@ -579,6 +581,8 @@
       longBreakMinutes: numberOrNull(row.long_break_minutes) || 15,
       autoStartNext: row.auto_start_next !== false,
       soundEnabled: row.sound_enabled !== false,
+      attentionMode: row.attention_mode === 'notebook' ? 'notebook' : 'screen',
+      alertsEnabled: row.alerts_enabled !== false,
       graceSeconds: numberOrNull(row.grace_seconds) || 5,
       cameraPreference: row.camera_preference || 'ask',
       dailyGoalMinutes: numberOrNull(row.daily_goal_minutes) || 120,
@@ -941,6 +945,8 @@
     var durations = (timerState && timerState.durations) || {};
     var soundEl = document.querySelector('[data-timer-setting="sound"]');
     var autoEl = document.querySelector('[data-timer-setting="autoStartNext"]');
+    var attentionEl = document.querySelector('[data-attention-mode]:checked');
+    var alertsEl = document.querySelector('[data-alert-setting="enabled"]');
 
     return {
       userId: userId,
@@ -949,6 +955,8 @@
       longBreakMinutes: Math.round(durations.longBreak || readNumberInput('[data-timer-setting="longBreak"]', 15)),
       autoStartNext: autoEl ? !!autoEl.checked : true,
       soundEnabled: soundEl ? !!soundEl.checked : true,
+      attentionMode: attentionEl ? attentionEl.value : 'screen',
+      alertsEnabled: alertsEl ? !!alertsEl.checked : true,
       graceSeconds: Math.round(readNumberInput('[data-distraction-setting="grace"]', 5)),
       cameraPreference: 'ask',
       dailyGoalMinutes: Math.round(readNumberInput('[data-setting="dailyGoalMinutes"]',
@@ -1013,6 +1021,16 @@
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
     });
+
+    // Prompt 10.5 — attention mode + attention sound alerts.
+    var attentionMode = module('attentionMode');
+    if (attentionMode && typeof attentionMode.applyFromSettings === 'function') {
+      attentionMode.applyFromSettings(row.attentionMode || 'screen');
+    }
+    var alerts = module('soundAlerts');
+    if (alerts && typeof alerts.setEnabled === 'function') {
+      alerts.setEnabled(row.alertsEnabled !== false);
+    }
 
     each('[data-setting="dailyGoalMinutes"]', function (el) {
       if (String(el.value) !== String(row.dailyGoalMinutes)) el.value = String(row.dailyGoalMinutes);

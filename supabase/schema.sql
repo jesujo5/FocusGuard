@@ -142,14 +142,23 @@ create table if not exists public.user_settings (
   long_break_minutes integer not null default 15 check (long_break_minutes between 1 and 180),
   auto_start_next    boolean not null default true,
   sound_enabled      boolean not null default true,
+  attention_mode     text not null default 'screen' check (attention_mode in ('screen', 'notebook')),
+  alerts_enabled     boolean not null default true,
   grace_seconds      integer not null default 5 check (grace_seconds between 2 and 15),
   camera_preference  text not null default 'ask',
   daily_goal_minutes integer not null default 120 check (daily_goal_minutes >= 0),
   updated_at         timestamptz not null default now()
 );
 
+-- Prompt 10.5 additions, for databases created before the attention modes.
+-- Idempotent: safe to re-run against an existing project.
+alter table public.user_settings
+  add column if not exists attention_mode text not null default 'screen';
+alter table public.user_settings
+  add column if not exists alerts_enabled boolean not null default true;
+
 comment on table public.user_settings is
-  'Non-sensitive preferences only (timers, grace period, notification toggles). No images, no camera data, no credentials.';
+  'Non-sensitive preferences only (timers, grace period, attention mode, sound toggles). No images, no camera data, no credentials.';
 
 -- ---------------------------------------------------------------------
 -- 6b. worlds / world_objects / world_expansions (Phase 10 — Focus World)

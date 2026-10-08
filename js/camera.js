@@ -293,6 +293,14 @@
     on: on,
     getState: getState,
     render: render,
+    /**
+     * The ONE live MediaStream this module owns (Prompt 10.5). Other UI
+     * (the Mini Focus Window) attaches this same object to its own
+     * <video>, so showing the camera twice never opens a second webcam
+     * capture — getUserMedia is still called exactly once here.
+     * @returns {MediaStream|null}
+     */
+    getStream: function () { return stream; },
   };
 
   if (document.readyState === 'loading') {
