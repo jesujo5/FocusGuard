@@ -4,7 +4,7 @@ An AI-assisted study productivity app that combines a Pomodoro-style study timer
 study sessions, browser-based focus monitoring, detailed analytics, and a
 gamified personal world that grows from the time you actually spend focused.
 
-> **Status: Phase 10 — Focus World.**
+> **Status: Phase 10.5 — Realistic study attention.**
 > Everything from Phases 1–9 is still here: study sessions, the Pomodoro timer,
 > the sand clock, the real-time clock, Focus Mode, fullscreen, the webcam panel,
 > an **on-device face presence detector** (MediaPipe FaceLandmarker), an
@@ -16,6 +16,9 @@ gamified personal world that grows from the time you actually spend focused.
 > build by spending the Focus Coins your focused study time earns — a
 > data-driven catalog, unlock milestones, land expansion, a world level and a
 > dashboard preview, synced through the same queue.
+> Phase 10.5 adds **Notebook / downward study** attention modes, partial-face
+> tolerance, attention sound alerts with a cooldown and a Mini Focus Window —
+> while keeping the Focus Score formula and the coin rule untouched.
 > Cloud sync stays inert until you paste in your own Supabase URL and anon key
 > (see *Configuring Supabase* below); analytics charts are **not** implemented yet.
 
@@ -40,6 +43,10 @@ gamified personal world that grows from the time you actually spend focused.
 | Focus World builder | **Done** — 5×5 → 7×7 → 10×10 → 15×15 grid, 16-item coin-priced catalog, move/rotate/delete, expansion |
 | World progression | **Done** — unlock tiers by focused minutes (0/60/180/500) and a 5-step world level, all driven by measured focused time |
 | World persistence & sync | **Done** — IndexedDB `worlds` / `worldObjects` / `worldExpansions` + the Phase 9 sync queue; purchases extend the coin ledger (`WORLD_PURCHASE`) |
+| Attention modes (Screen / Notebook) | **Done** — user-controlled downward-study posture, stable-window gated, extreme down rejected |
+| Partial-face tolerance | **Done** — Notebook mode holds a short face loss instead of counting it missing |
+| Attention sound alerts | **Done** — synthesised attention / distraction / return cues with a per-kind cooldown |
+| Mini Focus Window | **Done** — Document Picture-in-Picture with a draggable in-page fallback; shares the one stream and timer |
 
 ## Modules
 
@@ -66,6 +73,9 @@ never reaches into another's state.
 | `js/world.js` | **World state + rules.** Grid size, placed objects, selection, purchase/move/rotate/remove/expand, statistics and level. No DOM, no storage — persistence is delegated to `sync.js`. |
 | `js/worldRenderer.js` | **World visuals.** Turns world state into a CSS grid of cells (the My World stage and the small Dashboard preview). No WebGL, no canvas. |
 | `js/worldUI.js` | **World controls.** Build panel, mode buttons, selection, delete confirmation and gentle feedback. |
+| `js/soundAlerts.js` | **Attention sound cues.** Watches `js/distraction.js` and plays synthesised attention / distraction / return cues with a per-kind cooldown. No files, no network. |
+| `js/attentionMode.js` | **Attention mode UI.** The Screen / Notebook control and quick switch; drives `distraction.setAttentionMode()` and persists through `sync.js`. |
+| `js/miniWindow.js` | **Mini Focus Window.** Document Picture-in-Picture with a draggable in-page fallback; reuses the one camera stream and the one Pomodoro instance. |
 | `app.js` | Navigation, dashboard values (delegated to the focus engine), Focus Mode, fullscreen. |
 
 ### How the pieces connect
@@ -792,6 +802,129 @@ Meadow, animals, achievements, streaks, social and multiplayer worlds. The
 catalog, the biome field and the level list are shaped so these can be added
 later without a rewrite — but none of them ship in this phase.
 
+## Realistic study attention — Notebook Mode (Phase 10.5)
+
+“Studying does not always mean staring at the laptop screen.” A student writing
+in a notebook, solving maths on paper or reading a textbook keeps their head
+pointed down, and may half-leave the camera frame. Phases 1–9 called that
+`Attention drifting` / `Distracted` / `Face not detected`, which is a false
+distraction. Phase 10.5 adds a **user-controlled study posture mode** so
+legitimate downward study is counted as focused time.
+
+### What the camera can and cannot do
+
+It estimates **face presence**, **face orientation** and an approximate **head
+direction** — and nothing more. It **cannot** tell a textbook from a phone, a
+study PDF from Instagram, or a lecture from YouTube. FocusGuard does **not**
+pretend otherwise: there is no “AI knows you are reading” logic, no phone
+detector and no content classifier. You choose the mode; FocusGuard only
+interprets the head posture you asked it to accept.
+
+### The two modes
+
+| Mode | Behaviour |
+| --- | --- |
+| **Screen study** (default) | Exactly the Phase 7 behaviour: focus needs a face that is present and a head that is reasonably forward and stable. Downward / left / right / up go through the existing grace → distraction path. |
+| **Notebook / downward study** | Also accepts a **moderate downward posture** as a study posture. Left, right and up still go through grace → distraction; a missing face is still missing; an unmeasurable reading is still `Detection unavailable`. |
+
+### How Notebook Mode works
+
+`js/distraction.js` keeps its original state machine and adds one
+**interpretation layer** on top of the signals that already existed (nothing
+about the camera, MediaPipe or `js/attention.js` is rebuilt):
+
+1. The head direction is produced exactly as before — rolling median over ~1 s,
+   plus three consecutive agreeing frames before the label moves.
+2. With Notebook Mode on, `readPosture()` treats `DOWN` within a configurable
+   **pitch range** (`NOTEBOOK_PITCH_MAX_DEG = 48°`) as a `downward` study
+   posture. `js/attention.js` only reports `DOWN` beyond ~20°, so this widens —
+   never replaces — that reading.
+3. A posture must hold for the existing **stable window** (`stableMs = 1.2 s`)
+   before it counts. From `FOCUSED`, moving the head down enters a short
+   **downward candidate** (`GRACE`, unclassified time) and only then becomes
+   **`DOWNWARD STUDY`**. A 400 ms glance down is not enough.
+4. `DOWNWARD STUDY` files its time into the **same `focused` bucket** as
+   `FOCUSED`, so `focused ÷ (focused + distracted + faceMissing) × 100` is
+   unchanged and now counts legitimate notebook study.
+5. **Extreme downward** (past 48°, e.g. chin on chest) is **not** accepted — it
+   falls back to the normal grace → distraction path.
+6. Returning to the screen (`DOWNWARD STUDY → FORWARD → FOCUSED`) is smooth: the
+   session, the Pomodoro, the elapsed time, the Focus Score and the coins are
+   never touched.
+
+### Partial-face tolerance
+
+A face that half-leaves the frame is already handled by the `PRESENT_CONFIRM 2`
+/ `MISSING_CONFIRM 3` debounce (~0.6 s) and by the grace period before any
+distraction event. On top of that, **in Notebook mode only**, a face loss shorter
+than `PARTIAL_FACE_HOLD_MS = 1500 ms` is *held* as `Detection unavailable` (no
+verdict, no face-missing time) instead of counting as face-missing. Screen mode
+keeps the exact Phase 7 behaviour. An invisible face is never treated as focused.
+
+### Quick switch (Part 8)
+
+The mode can be changed mid-session from the Study Session card, from Focus Mode
+(a one-tap toggle) or from Settings. Switching changes **only** the reading — it
+never ends the session or resets the Pomodoro, the Focus Score or the Focus Coins.
+
+### Distraction sound alerts
+
+`js/soundAlerts.js` listens to `js/distraction.js` and plays short, synthesised
+cues (Web Audio, no files — same technique as the Pomodoro chime):
+
+| Transition | Cue |
+| --- | --- |
+| FOCUSED → GRACE | soft “attention” cue |
+| GRACE → DISTRACTED, or → FACE MISSING | firmer “distraction” cue |
+| DISTRACTED / FACE MISSING → FOCUSED | optional “return” cue |
+
+A **downward candidate** never chirps (it is a legitimate notebook switch being
+timed, not a drift). Each cue kind has its own **cooldown** (default 15 s,
+`ALERT_COOLDOWN_MS`), so a passing GRACE cue and the DISTRACTED cue that follows
+are both heard while a burst of flickering states cannot nag. The feature has its
+own **“Attention sound alerts”** switch, stored with the other settings and
+respected offline.
+
+### The Mini Focus Window
+
+`js/miniWindow.js` shows the clock, the countdown, the camera preview and the
+live focus status in a small monitor you can keep in a corner while studying
+away from the main screen.
+
+* **Document Picture-in-Picture** (`documentPictureInPicture.requestWindow()`) is
+  used when the browser supports it (Chrome/Edge 116+). Check
+  `FocusGuard.miniWindow.isPipSupported()`.
+* **Fallback:** when it is unavailable, or the request is rejected (not a user
+  gesture, an embedded webview), the same panel is drawn **in-page** as a
+  draggable element (`mode === 'inline'`).
+* **No second camera stream:** the preview `<video>` is bound to the *same*
+  `MediaStream` object `js/camera.js` already captured (`camera.getStream()`).
+  `getUserMedia()` is never called again.
+* **No second timer:** the countdown is read from the one Pomodoro instance
+  (`FocusGuard.timer.getState()`). The module owns no time source; its refresh
+  interval is a plain UI repaint (~4 fps).
+
+### Persistence (Part 9)
+
+`attentionMode` (`"screen"` / `"notebook"`) and `alertsEnabled` are stored with
+the other settings in the IndexedDB `settings` row and — when signed in — sync to
+`user_settings` (`attention_mode`, `alerts_enabled`; the two `alter table … add
+column if not exists` lines are idempotent). No new table was added; the frozen
+last-session snapshot also carries the mode in memory. Everything works with the
+network disabled.
+
+### Console helpers
+
+```js
+FocusGuard.attentionMode.set('notebook');   // or 'screen'
+FocusGuard.attentionMode.toggle();
+FocusGuard.distraction.getState().posture;  // forward | downward | away | none
+FocusGuard.soundAlerts.play('distraction');
+FocusGuard.soundAlerts.setCooldownMs(0);
+FocusGuard.miniWindow.open(); FocusGuard.miniWindow.close();
+FocusGuard.miniWindow.isPipSupported();
+```
+
 ## Intentionally not implemented yet
 
 - Analytics charts, streaks, leaderboards, social features
@@ -826,7 +959,10 @@ FocusGuard/
 │   ├── worldCatalog.js   # Focus World catalog: items, costs, unlocks, expansions
 │   ├── world.js          # Focus World state + operations (no DOM, no storage)
 │   ├── worldRenderer.js  # World visuals: My World stage + dashboard preview
-│   └── worldUI.js        # World controls: build panel, mode buttons, dialogs
+│   ├── worldUI.js        # World controls: build panel, mode buttons, dialogs
+│   ├── soundAlerts.js    # Attention sound cues (synthesised, with a cooldown)
+│   ├── attentionMode.js  # Attention mode UI: Screen / Notebook + quick switch
+│   └── miniWindow.js     # Mini Focus Window (Document PiP + in-page fallback)
 ├── supabase/
 │   └── schema.sql        # 9 tables (incl. worlds/world_objects/world_expansions) + RLS
 ├── assets/
@@ -916,3 +1052,11 @@ JavaScript: put a `data-timer-*`, `data-session-*` or `data-face-*` attribute th
 - **Cloud sync needs credentials.** With the placeholder config FocusGuard runs
   fully offline and the chip reads `Local`. Add your own Supabase URL and anon
   key (see *Configuring Supabase*) to turn it on.
+- **Document Picture-in-Picture.** Available in Chrome/Edge 116+. Firefox and
+  Safari do not expose `documentPictureInPicture`, and embedded webviews may
+  reject the request; the Mini Focus Window then falls back to its in-page
+  draggable panel. It always reuses the existing camera stream and Pomodoro.
+- **Notebook Mode is posture-based, not content-aware.** The camera reads face
+  presence and head orientation only. It cannot tell a textbook from a phone, so
+  Notebook Mode is a user choice and downward study is only accepted while it is
+  selected.

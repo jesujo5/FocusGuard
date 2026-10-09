@@ -32,6 +32,13 @@
      [data-mini-focus]         live attention status label
      [data-mini-score]         Focus Score
      [data-mini-coins]         Focus Coins
+     [data-phone-override]     "Using phone — distraction" (Prompt 11)
+     [data-phone-resume]       "Resume study"
+     [data-phone-status]       phone-use status line
+
+   The phone controls are owned by js/phoneOverride.js; this file only
+   puts them in the panel and hands the panel's root to that module, so
+   the Picture-in-Picture document is wired exactly like the main page.
 
    Console:
      FocusGuard.miniWindow.open() / close() / isOpen()
@@ -98,6 +105,14 @@
       '      <span class="mini-win__chip">Score <strong data-mini-score>—</strong></span>',
       '      <span class="mini-win__chip">Coins <strong data-mini-coins>0</strong></span>',
       '    </div>',
+      '    <div class="mini-win__phone">',
+      '      <p class="mini-win__phone-status" data-phone-status>No phone use marked</p>',
+      '      <button class="mini-win__phone-btn" type="button" data-phone-override',
+      '              title="Mark this interval as phone use — the camera cannot detect it">',
+      '        Using phone — distraction</button>',
+      '      <button class="mini-win__phone-btn mini-win__phone-btn--resume" type="button"',
+      '              data-phone-resume hidden>Resume study</button>',
+      '    </div>',
       '  </div>',
       '</div>',
     ].join('\n');
@@ -129,6 +144,14 @@
       '.mini-win__status{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px}',
       '.mini-win__status-main{flex:1 1 100%;font-weight:600;color:#ffd9dd}',
       '.mini-win__chip{background:#2a0d11;border-radius:999px;padding:2px 8px}',
+      '.mini-win__phone{display:flex;flex-direction:column;gap:6px;margin-top:2px}',
+      '.mini-win__phone-status{margin:0;font-size:11px;line-height:1.35;color:#efb9bf}',
+      '.mini-win__phone-btn{border:1px solid #7a2430;background:#3a1116;color:#ffd9dd;',
+      '  border-radius:8px;padding:7px 9px;font:600 12px/1.25 inherit;cursor:pointer}',
+      '.mini-win__phone-btn:hover{background:#4a161c}',
+      '.mini-win__phone-btn:disabled{opacity:.5;cursor:not-allowed}',
+      '.mini-win__phone-btn--resume{background:#17331f;border-color:#2f6b41;color:#c9f7d6}',
+      '.mini-win__phone-btn[hidden]{display:none}',
     ].join('\n');
   }
 
@@ -172,6 +195,34 @@
       }
       var coinsEl = firstIn(root, '[data-mini-coins]');
       if (coinsEl) coinsEl.textContent = String(e.availableCoins || 0);
+    }
+
+    // Keep the phone buttons in step even if a change event was missed.
+    var phone = module('phoneOverride');
+    if (phone && typeof phone.renderWithin === 'function') phone.renderWithin(root);
+  }
+
+  /**
+   * Hand the panel's phone controls to js/phoneOverride.js, so a picture-in-
+   * picture window (a different document) behaves exactly like the page.
+   */
+  function wirePhone(root) {
+    if (!root) return;
+    var phone = module('phoneOverride');
+    if (phone && typeof phone.bindWithin === 'function') {
+      phone.bindWithin(root);
+      return;
+    }
+    // phoneOverride.js unavailable (an old cached page): keep the buttons
+    // usable by talking to the engine directly.
+    var engine = module('distraction');
+    var override = root.querySelector('[data-phone-override]');
+    var resume = root.querySelector('[data-phone-resume]');
+    if (override && engine && engine.setPhoneOverride) {
+      override.addEventListener('click', function () { engine.setPhoneOverride(true); });
+    }
+    if (resume && engine && engine.setPhoneOverride) {
+      resume.addEventListener('click', function () { engine.setPhoneOverride(false); });
     }
   }
 
@@ -284,6 +335,7 @@
 
       var root = doc.body.querySelector('[data-mini-root]');
       wireClose(root, doc);
+      wirePhone(root);
 
       instance = {
         mode: 'pip', win: win, root: root, doc: doc,
@@ -308,6 +360,7 @@
 
     var root = wrap.querySelector('[data-mini-root]');
     wireClose(root, document);
+    wirePhone(root);
     var drag = makeDraggable(root);
 
     instance = {

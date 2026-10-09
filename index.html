@@ -446,6 +446,21 @@
                 <button class="btn btn--primary" data-session-pause>Pause session</button>
                 <button class="btn btn--ghost" data-session-end>End session</button>
               </div>
+
+              <!-- Prompt 11: phone use is declared in one click, never "detected" -->
+              <div class="phone-override" data-phone-panel>
+                <p class="phone-override__status" data-phone-status data-phone-state="clear">No phone use marked</p>
+                <div class="phone-override__actions">
+                  <button class="btn btn--sm phone-override__mark" type="button" data-phone-override
+                          title="Mark this interval as phone use — the camera cannot detect it">
+                    Using phone — distraction
+                  </button>
+                  <button class="btn btn--sm phone-override__resume" type="button" data-phone-resume hidden>
+                    Resume study
+                  </button>
+                </div>
+                <p class="muted small" data-phone-detail>Phone use during a session counts as distracted. Focused time and Focus Coins stop until you resume.</p>
+              </div>
             </div>
           </article>
         </div>
@@ -482,23 +497,13 @@
               <button class="btn btn--ghost" type="button" data-focus-open>Focus Mode</button>
             </div>
 
-            <!-- Prompt 10.5: how the camera should read your study posture -->
-            <div class="attention-mode" data-attention-block>
-              <div class="attention-mode__head">
-                <span class="field__label">Attention mode</span>
-                <span class="pill pill--soft" data-attention-mode-status>Screen study</span>
+            <!-- Prompt 11: one automatic monitoring mode — nothing to switch -->
+            <div class="monitoring-note">
+              <div class="monitoring-note__head">
+                <span class="field__label">Monitoring</span>
+                <span class="pill pill--soft" data-attention-mode-status>Intelligent monitoring</span>
               </div>
-              <div class="attention-mode__options" role="radiogroup" aria-label="Attention mode">
-                <label class="attention-mode__option">
-                  <input type="radio" name="attentionModeSession" value="screen" data-attention-mode checked />
-                  <span>Screen study</span>
-                </label>
-                <label class="attention-mode__option">
-                  <input type="radio" name="attentionModeSession" value="notebook" data-attention-mode />
-                  <span>Notebook / downward study</span>
-                </label>
-              </div>
-              <p class="muted small" data-attention-mode-help>Best when you study mainly from the laptop screen.</p>
+              <p class="muted small" data-attention-mode-help>Automatic — FocusGuard reads your study posture itself. The laptop screen, a notebook and handwriting all count as studying; phone use during a session counts as distracted.</p>
             </div>
 
             <div class="pomodoro-count">
@@ -723,23 +728,13 @@
               distraction record.
             </p>
 
-            <!-- Prompt 10.5: attention mode + sound alerts -->
-            <div class="attention-mode">
-              <div class="attention-mode__head">
-                <span class="field__label">Attention mode</span>
-                <span class="pill pill--soft" data-attention-mode-status>Screen study</span>
+            <!-- Prompt 11: monitoring is automatic + sound alerts -->
+            <div class="monitoring-note">
+              <div class="monitoring-note__head">
+                <span class="field__label">Monitoring</span>
+                <span class="pill pill--soft" data-attention-mode-status>Intelligent monitoring</span>
               </div>
-              <div class="attention-mode__options" role="radiogroup" aria-label="Attention mode">
-                <label class="attention-mode__option">
-                  <input type="radio" name="attentionModeSettings" value="screen" data-attention-mode checked />
-                  <span>Screen study</span>
-                </label>
-                <label class="attention-mode__option">
-                  <input type="radio" name="attentionModeSettings" value="notebook" data-attention-mode />
-                  <span>Notebook / downward study</span>
-                </label>
-              </div>
-              <p class="muted small" data-attention-mode-help>Best when you study mainly from the laptop screen.</p>
+              <p class="muted small" data-attention-mode-help>Automatic — the laptop screen, a notebook and handwriting all count as studying. There is no mode to choose.</p>
             </div>
             <div class="setting-row">
               <span>Attention sound alerts</span>
@@ -854,24 +849,28 @@
           <button class="btn btn--ghost" type="button" data-session-end>End session</button>
         </div>
 
-        <!-- Prompt 10.5: quick switch — changes nothing but the reading -->
-        <div class="attention-mode attention-mode--quick">
-          <div class="attention-mode__head">
-            <span class="field__label">Attention mode</span>
-            <span class="pill pill--soft" data-attention-mode-status>Screen study</span>
+        <!-- Prompt 11: monitoring is automatic — nothing to switch here -->
+        <div class="monitoring-note monitoring-note--quick">
+          <div class="monitoring-note__head">
+            <span class="field__label">Monitoring</span>
+            <span class="pill pill--soft" data-attention-mode-status>Intelligent monitoring</span>
           </div>
-          <div class="attention-mode__options" role="radiogroup" aria-label="Attention mode">
-            <label class="attention-mode__option">
-              <input type="radio" name="attentionModeFocus" value="screen" data-attention-mode checked />
-              <span>Screen study</span>
-            </label>
-            <label class="attention-mode__option">
-              <input type="radio" name="attentionModeFocus" value="notebook" data-attention-mode />
-              <span>Notebook</span>
-            </label>
+          <p class="muted small" data-attention-mode-help>Automatic — laptop screen, notebook and handwriting all count as studying.</p>
+        </div>
+
+        <!-- Prompt 11: phone use is declared in one click, never "detected" -->
+        <div class="phone-override" data-phone-panel>
+          <p class="phone-override__status" data-phone-status data-phone-state="clear">No phone use marked</p>
+          <div class="phone-override__actions">
+            <button class="btn btn--sm phone-override__mark" type="button" data-phone-override
+                    title="Mark this interval as phone use — the camera cannot detect it">
+              Using phone — distraction
+            </button>
+            <button class="btn btn--sm phone-override__resume" type="button" data-phone-resume hidden>
+              Resume study
+            </button>
           </div>
-          <button class="btn btn--ghost btn--sm" type="button" data-attention-quick-toggle>Notebook / downward study</button>
-          <p class="muted small" data-attention-mode-help>Best when you study mainly from the laptop screen.</p>
+          <p class="muted small" data-phone-detail>Phone use during a session counts as distracted. Mark it in one click — the camera cannot tell a phone from your notes.</p>
         </div>
 
         <p class="muted small">Completed pomodoros: <strong data-timer-count>0</strong></p>
@@ -1048,6 +1047,7 @@
   <script src="js/distraction.js" defer></script>
   <script src="js/soundAlerts.js" defer></script>
   <script src="js/attentionMode.js" defer></script>
+  <script src="js/phoneOverride.js" defer></script>
   <script src="js/miniWindow.js" defer></script>
   <script src="js/focusEngine.js" defer></script>
   <!-- Phase 10: Focus World — catalog, state, renderer, controls -->

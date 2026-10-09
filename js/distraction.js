@@ -27,11 +27,27 @@
    change is noticed, never the numbers themselves.
 
    ---- States ---------------------------------------------------------
-     FOCUSED      face detected, head forward, stable for ~1.2 s
-     GRACE        was focused, looked away, grace period not over yet
-     DISTRACTED   looked away for longer than the grace period
-     FACE_MISSING no face in frame (already debounced by faceDetection)
-     UNKNOWN      camera off, model loading/failed — nothing reliable
+     FOCUSED        face detected, head at the screen, stable ~1.2 s
+     DOWNWARD_STUDY the same focused time through a *moderate* downward
+                    posture — paper, a notebook, handwriting — accepted
+                    automatically from the very same camera pipeline
+     GRACE          was focused, looked away, grace period not over yet
+     DISTRACTED     looked away for longer than the grace period
+     PHONE_USE      the user pressed "Using phone"; it is distraction,
+                    pinned until they press "Resume study" — or the
+                    session ends. Never claimed to be automatic.
+     FACE_MISSING   no face in frame (already debounced by faceDetection)
+     UNKNOWN        camera off, model loading/failed — nothing reliable
+
+   ---- ONE automatic mode (Prompt 11) ---------------------------------
+   There is no Screen/Notebook switch any more. Facing the screen and a
+   stable, *moderate* downward posture are both read as studying, from the
+   same camera → faceDetection → attention signals. Only an extreme
+   downward angle (past STUDY_PITCH_MAX_DEG) or a downward angle whose
+   orientation estimate is not reliable enough falls back to the normal
+   head-away handling. Switching between the screen and the page is not a
+   lapse: an interval that is already focused keeps its focused time and
+   simply continues under the new posture.
 
    ---- What it measures ----------------------------------------------
    While a study session runs (and the Pomodoro is not paused or on a
@@ -51,7 +67,8 @@
    DISTRACTED and closed when the user is FOCUSED again (or when the
    camera stops / the session ends). Metadata only, kept in memory:
 
-     { id, startTime, endTime, duration, reason: 'HEAD_AWAY' | 'FACE_MISSING' }
+     { id, startTime, endTime, duration,
+       reason: 'HEAD_AWAY' | 'FACE_MISSING' | 'PHONE_USE' }
 
    ---- Session integration --------------------------------------------
    Camera on, no study session → status monitoring only, no records.
@@ -77,11 +94,15 @@
   /** The attention states this engine can report. */
   var STATE = {
     FOCUSED: 'focused',
-    // Prompt 10.5 — a *different* way of being focused: a stable, moderate
-    // downward posture while writing or reading (notebook mode only).
+    // A *different* way of being focused: a stable, moderate downward
+    // posture while writing on paper or reading a notebook. Accepted
+    // automatically — there is no mode to pick.
     DOWNWARD_STUDY: 'downward-study',
     GRACE: 'grace',
     DISTRACTED: 'distracted',
+    // The user told us directly that they picked up their phone. This is a
+    // declared distraction, never a detected one.
+    PHONE_USE: 'phone-use',
     FACE_MISSING: 'face-missing',
     UNKNOWN: 'unknown',
   };
@@ -95,6 +116,7 @@
     'downward-study': 'Downward study',
     grace: 'Attention drifting',
     distracted: 'Distracted',
+    'phone-use': 'Distracted — Phone Use',
     'face-missing': 'Face not detected',
     unknown: 'Detection unavailable',
   };
@@ -103,14 +125,17 @@
   var REASON = {
     HEAD_AWAY: 'HEAD_AWAY',
     FACE_MISSING: 'FACE_MISSING',
+    PHONE_USE: 'PHONE_USE',
   };
 
   /** Fixed second line of the status row (the distracted one is live). */
   var DETAILS = {
     focused: '',
-    'downward-study': 'Notebook posture',
+    'downward-study': 'Downward posture — paper, notebook or handwriting',
     grace: 'Returning to screen…',
     distracted: '',
+    // Honest wording: the user marked this, the camera did not detect it.
+    'phone-use': 'You marked this — not detected by the camera',
     'face-missing': '',
     unknown: '',
   };
@@ -128,29 +153,53 @@
   var TURN_DIRECTIONS = ['left', 'right', 'up', 'down'];
 
   /**
-   * Attention modes (Prompt 10.5).
-   *   SCREEN    the historic behaviour: focus needs a screen-facing head.
-   *   NOTEBOOK  also accepts a *moderate* downward posture as studying, so
-   *             writing on paper or reading a book is not called distracted.
+   * Monitoring mode. There is exactly one — INTELLIGENT — and the legacy
+   * SCREEN / NOTEBOOK names are kept only so old stored settings, console
+   * snippets and tests keep working. Every value resolves to the same
+   * automatic reading, so nothing here asks the user to choose.
    */
-  var MODES = { SCREEN: 'screen', NOTEBOOK: 'notebook' };
-  var MODE_LABELS = {
-    screen: 'Screen study',
-    notebook: 'Notebook / downward study',
+  var MODES = {
+    SCREEN: 'screen',
+    NOTEBOOK: 'notebook',
+    INTELLIGENT: 'intelligent',
   };
+  var MODE_LABELS = {
+    screen: 'Intelligent monitoring',
+    notebook: 'Intelligent monitoring',
+    intelligent: 'Intelligent monitoring',
+  };
+  var MONITORING_MODE = MODES.INTELLIGENT;
 
   /**
-   * Notebook mode accepts a moderate downward pitch as a study posture.
-   * Past this many degrees the head is too far down (chin on chest, phone
-   * below the desk…) to call it studying, so it falls back to the normal
-   * head-away handling. js/attention.js only reports DOWN beyond ~20°, so
-   * this widens — never replaces — that reading.
+   * Automatic notebook-posture recognition.
+   *
+   * js/attention.js only reports DOWN once the pitch is past ~20°, so any
+   * "down" reading already clears that floor. A downward posture counts as
+   * studying while the head is still *moderately* down:
+   *
+   *   STUDY_PITCH_ENTER_DEG           the most a posture may be tilted to
+   *                                   be ACCEPTED as studying at all
+   *   STUDY_PITCH_LANDMARK_ENTER_DEG  the same for the coarser landmark
+   *                                   fallback (no pose matrix) — stricter,
+   *                                   because that angle is less reliable
+   *   STUDY_PITCH_MAX_DEG             once accepted, the posture is only
+   *                                   released past this angle. That gap is
+   *                                   hysteresis: a head hovering on the
+   *                                   boundary cannot flicker between
+   *                                   focused and distracted.
+   *
+   * Past STUDY_PITCH_MAX_DEG (chin on chest, phone below the desk…) the
+   * posture is deliberately NOT studying and falls back to the normal
+   * head-away handling.
    */
-  var NOTEBOOK_PITCH_MAX_DEG = 48;
+  var STUDY_PITCH_ENTER_DEG = 42;
+  var STUDY_PITCH_LANDMARK_ENTER_DEG = 34;
+  var STUDY_PITCH_MAX_DEG = 48;
 
   /**
    * A very short face loss — the kind you get while leaning over a page —
-   * is tolerated in notebook mode instead of counting as face-missing.
+   * is held back instead of being reported as "Face Not Detected". This
+   * applies in every posture, automatically (Prompt 11).
    */
   var DEFAULT_PARTIAL_FACE_HOLD_MS = 1500;
 
@@ -163,13 +212,16 @@
   var awayReason = null;        // HEAD_AWAY | FACE_MISSING (current condition)
   var postureSince = null;      // when the current accepted posture began
   var acceptedPosture = null;   // 'forward' | 'downward' (the posture being timed)
+  var studySince = null;        // start of the current run of study postures
 
-  // Prompt 10.5 — attention mode + the extra signals it needs.
-  var attentionMode = MODES.SCREEN;
+  // Automatic monitoring + the manual phone override.
+  var attentionMode = MONITORING_MODE;
   var partialFaceHoldMs = DEFAULT_PARTIAL_FACE_HOLD_MS;
   var missingHoldSince = null;   // when the face first left the frame
   var lastPosture = 'none';      // forward | downward | away | none
-  var downwardCandidate = false; // stable downward posture, not yet focused
+  var downwardCandidate = false; // downward posture, not yet accepted as study
+  var phoneOverride = false;     // the user pressed "Using phone"
+  var phoneOverrideSince = null; // the exact timestamp it started
 
   // Measurement gate + one time bucket per attention category. Every
   // measured millisecond lands in exactly one bucket, or in none at all
@@ -201,7 +253,7 @@
   var tickId = null;
   var attached = false;
   var unsubscribers = [];
-  var handlers = { change: [], event: [], mode: [] };
+  var handlers = { change: [], event: [], mode: [], override: [] };
   var lastSignature = '';
   var eventSeq = 0;
 
@@ -271,24 +323,43 @@
     return typeof snapshot.pitch === 'number' ? snapshot.pitch : null;
   }
 
+  /** Where the latest head angles came from ('matrix' | 'landmarks' | null). */
+  function readPoseSource() {
+    var attention = module('attention');
+    if (!attention || typeof attention.getState !== 'function') return null;
+    var snapshot = attention.getState();
+    return snapshot.poseSource || null;
+  }
+
   /**
-   * The study posture the *current mode* accepts as a focus candidate.
+   * The study posture the current head reading represents.
    *   'forward'  the head is aimed at the screen
-   *   'downward' a moderate downward pitch (notebook mode only)
-   *   'away'     a deliberate turn, or too steep a downward angle
+   *   'downward' a moderate, reliable downward angle — notebook or paper
+   *   'away'     a deliberate turn, or a downward angle too steep / not
+   *              reliable enough to call studying
    *   'none'     no face / no usable reading
-   * Only the interpretation changes with the mode: the raw signals still
-   * come from the same camera → faceDetection → attention pipeline.
+   * Automatic: no mode is consulted, and the raw signals still come from
+   * the one camera → faceDetection → attention pipeline.
    */
   function readPosture(direction) {
     if (direction === 'forward') return 'forward';
-    if (attentionMode === MODES.NOTEBOOK && direction === 'down') {
-      var pitch = readPitch();
-      if (pitch !== null && Math.abs(pitch) <= NOTEBOOK_PITCH_MAX_DEG) {
-        return 'downward';
-      }
-    }
-    return 'away';
+    if (direction !== 'down') return 'away';
+
+    // No numerical angle → no verdict. We never invent a pitch.
+    var pitch = readPitch();
+    if (pitch === null) return 'away';
+
+    // Hysteresis: a posture that is already accepted stays accepted until it
+    // passes the wider release angle; a new one has to clear the stricter
+    // entry angle first.
+    var alreadyAccepted = acceptedPosture === 'downward' ||
+      state === STATE.DOWNWARD_STUDY;
+    var source = readPoseSource();
+    var limit = alreadyAccepted
+      ? STUDY_PITCH_MAX_DEG
+      : (source === 'landmarks' ? STUDY_PITCH_LANDMARK_ENTER_DEG : STUDY_PITCH_ENTER_DEG);
+
+    return Math.abs(pitch) <= limit ? 'downward' : 'away';
   }
 
   /**
@@ -357,6 +428,9 @@
     // different posture. It feeds the same bucket as FOCUSED.
     if (stateName === STATE.DOWNWARD_STUDY) return 'focused';
     if (stateName === STATE.DISTRACTED) return 'distracted';
+    // Declared phone use is distraction, and nothing else: no focused
+    // time, no Focus Coins for the interval.
+    if (stateName === STATE.PHONE_USE) return 'distracted';
     if (stateName === STATE.FACE_MISSING) return 'face-missing';
     // GRACE only lasts a few seconds and UNKNOWN has no verdict at all, so
     // neither is allowed to inflate a positive number.
@@ -413,7 +487,9 @@
       startTime: now,
       endTime: null,
       duration: 0,
-      reason: awayReason === REASON.FACE_MISSING ? REASON.FACE_MISSING : REASON.HEAD_AWAY,
+      reason: awayReason === REASON.FACE_MISSING ? REASON.FACE_MISSING
+        : awayReason === REASON.PHONE_USE ? REASON.PHONE_USE
+        : REASON.HEAD_AWAY,
     };
     emit('event', { type: 'open', event: cloneEvent(openEvent) });
   }
@@ -490,6 +566,20 @@
       return;
     }
 
+    // The manual phone override outranks the camera. While it is on, the
+    // state stays "Distracted — Phone Use" whatever the posture says — a
+    // camera update can never clear it, only the user or the session end.
+    if (phoneOverride) {
+      if (awaySince === null) {
+        awaySince = phoneOverrideSince || now;
+        awayReason = REASON.PHONE_USE;
+      }
+      openDistraction(now);
+      setState(STATE.PHONE_USE, now);
+      publish(now);
+      return;
+    }
+
     var detection = readDetection();
     if (detection === 'unknown') {
       // Model loading/failed or no verdict yet: say so instead of guessing.
@@ -504,41 +594,49 @@
     var posture = detection === 'present' ? readPosture(direction) : 'none';
     lastPosture = posture;
 
-    // A stable study posture — facing the screen, or (in notebook mode) a
-    // moderate downward posture — is a focus candidate. Nothing about the
-    // session, the Pomodoro, the score or the coins is touched here.
+    // A study posture — facing the screen, or a moderate downward angle —
+    // is a focus candidate. Nothing about the session, the Pomodoro, the
+    // score or the coins is touched here.
     if (posture === 'forward' || posture === 'downward') {
       awaySince = null;
       awayReason = null;
       missingHoldSince = null;
 
-      // The stable-frame gate is per *posture*: switching between facing the
-      // screen and looking down restarts it, so neither direction is ever
-      // accepted from a single flicker of the head.
+      // Two clocks:
+      //   studySince    how long *any* study posture has been held without
+      //                 a break — the "~1-2 s of stable posture" gate.
+      //   postureSince  how long this particular posture has been held.
+      if (studySince === null) studySince = now;
       if (postureSince === null || acceptedPosture !== posture) postureSince = now;
       acceptedPosture = posture;
-      var stableEnough = now - postureSince >= stableMs;
-      var focusedAlready = state === STATE.FOCUSED || state === STATE.DOWNWARD_STUDY;
 
-      if (posture === 'forward') {
-        // Back at the screen: an already-focused interval continues; a fresh
-        // one waits for the stable window, exactly as before Prompt 10.5.
-        if (focusedAlready || stableEnough) setState(STATE.FOCUSED, now);
-      } else if (stableEnough) {
-        // A downward posture only becomes studying after it has held steady.
-        setState(STATE.DOWNWARD_STUDY, now);
-      } else if (focusedAlready) {
-        // The candidate phase: not focused, not a drift — unclassified time.
+      // Switching between the screen and the page is not a lapse in
+      // attention: an interval that is already focused keeps its focused
+      // time and simply carries on under the new posture — so wobbling the
+      // head while writing never ends a distraction or restarts the clock.
+      // A fresh interval, or one coming back from an away episode, still
+      // has to hold a study posture steadily before it counts.
+      var focusedAlready = state === STATE.FOCUSED || state === STATE.DOWNWARD_STUDY;
+      var studyStable = now - studySince >= stableMs;
+      var canFocus = focusedAlready || studyStable;
+
+      downwardCandidate = posture === 'downward' && !canFocus;
+
+      if (canFocus) {
+        setState(posture === 'downward' ? STATE.DOWNWARD_STUDY : STATE.FOCUSED, now);
+      } else if (state === STATE.DISTRACTED || state === STATE.FACE_MISSING ||
+                 state === STATE.GRACE) {
+        // On the way back: a candidate posture, not a verdict yet.
         setState(STATE.GRACE, now);
       }
 
-      downwardCandidate = posture === 'downward' && state !== STATE.DOWNWARD_STUDY;
       publish(now);
       return;
     }
 
     postureSince = null;
     acceptedPosture = null;
+    studySince = null;
     downwardCandidate = false;
 
     // Face is there but no trustworthy direction yet — stay neutral.
@@ -552,9 +650,13 @@
     // Face missing is its own condition, and its own reason.
     var condition = detection === 'missing' ? REASON.FACE_MISSING : REASON.HEAD_AWAY;
 
-    // Partial-face tolerance (notebook mode): while writing/reading the face
-    // often half-leaves the frame for a moment. Such a short loss is held
-    // back — no reading, so no verdict — instead of counting as face-missing.
+    // Partial-face tolerance: while writing or reading, the face often
+    // half-leaves the frame for a moment (this is what used to flash "Face
+    // Not Detected" the instant you bent further down). Such a short loss is
+    // held back — no reading, so no verdict, no alarm, no distraction event
+    // — instead of counting as face-missing. It applies to every posture now.
+    // A loss longer than the hold is still honestly face-missing: a face the
+    // camera cannot observe must never earn focused time.
     if (condition === REASON.FACE_MISSING) {
       if (missingHoldSince === null) missingHoldSince = now;
     } else {
@@ -562,7 +664,6 @@
     }
 
     if (condition === REASON.FACE_MISSING &&
-        attentionMode === MODES.NOTEBOOK &&
         missingHoldSince !== null &&
         now - missingHoldSince < partialFaceHoldMs) {
       awaySince = null;
@@ -601,6 +702,8 @@
     awaySince = null;
     awayReason = null;
     postureSince = null;
+    acceptedPosture = null;
+    studySince = null;
     state = STATE.UNKNOWN;
     publish(now);
   }
@@ -619,6 +722,7 @@
       if (state !== STATE.FOCUSED) awaySince = now;   // fresh away episode
       postureSince = null;
       acceptedPosture = null;
+      studySince = null;
       missingHoldSince = null;
       bucket = currentBucket();
       bucketSince = now;
@@ -631,6 +735,12 @@
       awaySince = null;
       awayReason = null;
       postureSince = null;
+      acceptedPosture = null;
+      studySince = null;
+      // The session (or the camera) ended: a phone declaration does not
+      // outlive it.
+      phoneOverride = false;
+      phoneOverrideSince = null;
       bucket = null;
       bucketSince = now;
     }
@@ -674,13 +784,26 @@
       headDirection: readDirection(),
       faceDetection: detection,
 
-      // Prompt 10.5 — attention mode + the posture it is interpreting.
+      // The automatic monitoring mode + the posture it is interpreting.
+      // attentionMode/attentionModeLabel are legacy names kept for the UI
+      // and the stored settings; they always read as the one mode now.
       attentionMode: attentionMode,
       attentionModeLabel: MODE_LABELS[attentionMode],
+      monitoringMode: MONITORING_MODE,
+      monitoringModeLabel: MODE_LABELS[MONITORING_MODE],
       posture: lastPosture,
       downwardCandidate: downwardCandidate,
-      notebookPitchMaxDeg: NOTEBOOK_PITCH_MAX_DEG,
+      studyPitchEnterDeg: STUDY_PITCH_ENTER_DEG,
+      studyPitchLandmarkEnterDeg: STUDY_PITCH_LANDMARK_ENTER_DEG,
+      studyPitchMaxDeg: STUDY_PITCH_MAX_DEG,
+      notebookPitchMaxDeg: STUDY_PITCH_MAX_DEG,   // legacy name
       partialFaceHoldMs: partialFaceHoldMs,
+
+      // The manual phone declaration.
+      phoneOverride: phoneOverride,
+      phoneOverrideSince: phoneOverrideSince,
+      phoneOverrideDurationMs: phoneOverrideSince
+        ? Math.max(0, now - phoneOverrideSince) : 0,
 
       measuring: measuring,
       gates: {
@@ -699,7 +822,7 @@
 
       isImplemented: true,
       signature: [state, awayReason || '-', tracking ? 'tracking' : 'status',
-        attentionMode].join('|'),
+        attentionMode, phoneOverride ? 'phone' : ''].join('|'),
     };
   }
 
@@ -737,6 +860,9 @@
 
       // The mode the session ran in — kept for the in-memory snapshot.
       attentionMode: attentionMode,
+      monitoringMode: MONITORING_MODE,
+      phoneOverride: phoneOverride,
+      phoneUseDuration: phoneOverrideSince ? seconds(now - phoneOverrideSince) : 0,
     };
   }
 
@@ -883,24 +1009,89 @@
   }
 
   /**
-   * Switch the attention mode (Prompt 10.5). Purely an interpretation
-   * change: the pipeline, the session, the timer, the score and the coins
-   * are all left exactly as they are. The posture timer is restarted so a
-   * switch mid-glance gets the same stable-frame gate as any other posture.
+   * Legacy hook from Prompt 10.5, when the user could pick Screen study or
+   * Notebook study. Monitoring is automatic now, so every value simply
+   * resolves to the one intelligent mode; passing 'notebook' or 'screen'
+   * can therefore never break the automatic reading, an old stored setting
+   * or a console snippet. It touches no timer, session, score or coin.
    */
   function setAttentionMode(mode) {
-    var next = mode === MODES.NOTEBOOK ? MODES.NOTEBOOK : MODES.SCREEN;
-    if (next === attentionMode) return attentionMode;
-
-    attentionMode = next;
-    postureSince = null;
-    acceptedPosture = null;
-    missingHoldSince = null;
-    downwardCandidate = false;
-
-    emit('mode', { mode: attentionMode, label: MODE_LABELS[attentionMode] });
-    react();
+    if (attentionMode !== MONITORING_MODE) {
+      attentionMode = MONITORING_MODE;
+      emit('mode', { mode: attentionMode, label: MODE_LABELS[attentionMode] });
+      react();
+    }
     return attentionMode;
+  }
+
+  /**
+   * The manual "Using phone" distraction (Prompt 11).
+   *
+   * The camera genuinely cannot tell a phone from a notebook, so this never
+   * pretends to detect one: the user says so, and the engine records it as
+   * distraction from the exact timestamp the switch flipped.
+   *
+   *   on = true   stop counting focused time at `when`, open ONE distraction
+   *               event with reason PHONE_USE, pin the state to PHONE_USE.
+   *   on = false  close that event at `when`, then let the normal posture
+   *               state machine re-decide from the *current* camera reading.
+   *
+   * While it is on, evaluate() short-circuits, so no camera update can
+   * cancel it. It is cleared only here or when the session ends.
+   */
+  function setPhoneOverride(on, when) {
+    var next = !!on;
+    var now = when || Date.now();
+
+    if (next === phoneOverride) {
+      react();
+      return phoneOverride;
+    }
+
+    phoneOverride = next;
+
+    if (next) {
+      phoneOverrideSince = now;
+      // Bypass the grace period: the user declared this, we do not wait.
+      awaySince = now;
+      awayReason = REASON.PHONE_USE;
+      // Drop any half-confirmed posture reading.
+      postureSince = null;
+      acceptedPosture = null;
+      studySince = null;
+      missingHoldSince = null;
+      downwardCandidate = false;
+      // Close any episode already in progress (e.g. a look-away that was
+      // already distracted) at this exact instant, so the phone-use event
+      // that follows carries its own reason and its own duration.
+      closeDistraction(now);
+      // Move the measured bucket at this instant, so the focused time stops
+      // at the switch and the distraction time starts there.
+      setState(STATE.PHONE_USE, now);
+      openDistraction(now);
+    } else {
+      // Close the phone-use interval at the exact clear timestamp: the
+      // distraction duration is the time really spent on the phone.
+      closeDistraction(now);
+      phoneOverrideSince = null;
+      awaySince = null;
+      awayReason = null;
+      postureSince = null;
+      acceptedPosture = null;
+      studySince = null;
+      missingHoldSince = null;
+      // Hand back to the existing grace/distraction machine. The state goes
+      // to GRACE — unclassified, never wrongly focused — and only a stable,
+      // reliable study posture promotes it to FOCUSED from there.
+      if (state === STATE.PHONE_USE) setState(STATE.GRACE, now);
+      emit('override', { active: false, since: null });
+      evaluate(now);
+      return phoneOverride;
+    }
+
+    emit('override', { active: true, since: phoneOverrideSince });
+    publish(now);
+    return phoneOverride;
   }
 
   function setPartialFaceHold(ms) {
@@ -924,8 +1115,11 @@
     awayReason = null;
     postureSince = null;
     acceptedPosture = null;
+    studySince = null;
     missingHoldSince = null;
     downwardCandidate = false;
+    phoneOverride = false;
+    phoneOverrideSince = null;
     lastPosture = 'none';
     state = STATE.UNKNOWN;
     render();
@@ -947,8 +1141,11 @@
     awayReason = null;
     postureSince = null;
     acceptedPosture = null;
+    studySince = null;
     missingHoldSince = null;
     downwardCandidate = false;
+    phoneOverride = false;
+    phoneOverrideSince = null;
     lastPosture = 'none';
     bucket = null;
     bucketSince = now;
@@ -999,15 +1196,27 @@
       return {
         graceMs: graceMs, stableMs: stableMs, tickMs: TICK_MS, tracking: tracking,
         attentionMode: attentionMode,
-        notebookPitchMaxDeg: NOTEBOOK_PITCH_MAX_DEG,
+        monitoringMode: MONITORING_MODE,
+        studyPitchEnterDeg: STUDY_PITCH_ENTER_DEG,
+        studyPitchLandmarkEnterDeg: STUDY_PITCH_LANDMARK_ENTER_DEG,
+        studyPitchMaxDeg: STUDY_PITCH_MAX_DEG,
+        notebookPitchMaxDeg: STUDY_PITCH_MAX_DEG,   // legacy name
         partialFaceHoldMs: partialFaceHoldMs,
+        phoneOverride: phoneOverride,
+        phoneOverrideSince: phoneOverrideSince,
       };
     },
     setGracePeriod: setGracePeriod,
 
     getAttentionMode: function () { return attentionMode; },
+    getMonitoringMode: function () { return MONITORING_MODE; },
     setAttentionMode: setAttentionMode,
     setPartialFaceHold: setPartialFaceHold,
+
+    // Manual phone distraction (Prompt 11).
+    setPhoneOverride: setPhoneOverride,
+    isPhoneOverride: function () { return phoneOverride; },
+    getPhoneOverrideSince: function () { return phoneOverrideSince; },
 
     on: on,
     render: render,

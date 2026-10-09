@@ -142,7 +142,7 @@ create table if not exists public.user_settings (
   long_break_minutes integer not null default 15 check (long_break_minutes between 1 and 180),
   auto_start_next    boolean not null default true,
   sound_enabled      boolean not null default true,
-  attention_mode     text not null default 'screen' check (attention_mode in ('screen', 'notebook')),
+  attention_mode     text not null default 'intelligent' check (attention_mode in ('screen', 'notebook', 'intelligent')),
   alerts_enabled     boolean not null default true,
   grace_seconds      integer not null default 5 check (grace_seconds between 2 and 15),
   camera_preference  text not null default 'ask',
@@ -151,14 +151,25 @@ create table if not exists public.user_settings (
 );
 
 -- Prompt 10.5 additions, for databases created before the attention modes.
+-- Prompt 11: monitoring became automatic, so the stored value is now
+-- 'intelligent' and the older 'screen' / 'notebook' values are still
+-- accepted, which keeps any pre-existing row valid.
 -- Idempotent: safe to re-run against an existing project.
 alter table public.user_settings
-  add column if not exists attention_mode text not null default 'screen';
+  add column if not exists attention_mode text not null default 'intelligent';
 alter table public.user_settings
   add column if not exists alerts_enabled boolean not null default true;
 
+-- Widen the column check the Prompt 10.5 schema created, so an existing
+-- project can store the automatic mode too.
+alter table public.user_settings
+  drop constraint if exists user_settings_attention_mode_check;
+alter table public.user_settings
+  add constraint user_settings_attention_mode_check
+  check (attention_mode in ('screen', 'notebook', 'intelligent'));
+
 comment on table public.user_settings is
-  'Non-sensitive preferences only (timers, grace period, attention mode, sound toggles). No images, no camera data, no credentials.';
+  'Non-sensitive preferences only (timers, grace period, monitoring mode, sound toggles). No images, no camera data, no credentials.';
 
 -- ---------------------------------------------------------------------
 -- 6b. worlds / world_objects / world_expansions (Phase 10 — Focus World)

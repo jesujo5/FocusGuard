@@ -10,7 +10,10 @@
                     period is running)
      DISTRACTED   → a firmer "distraction" cue (the grace period expired)
      FACE_MISSING → the same "distraction" cue (the face left the frame)
-     back FOCUSED → an optional "return" cue, only after a distraction cue
+     PHONE_USE    → the same "distraction" cue, the moment the user marks
+                    phone use (Prompt 11)
+     back FOCUSED → an optional "return" cue, only after a real away state
+                    (including "Resume study" after phone use)
 
    Nothing here records anything, and no audio file is downloaded: every
    tone is generated with the Web Audio API, exactly like the Pomodoro
@@ -59,6 +62,7 @@
   var lastPlayed = { attention: 0, distraction: 0, return: 0 };
   var lastKind = null;
   var lastState = null;
+  var lastAway = null;   // the last real away state we cued (not GRACE)
   var playedCount = 0;
 
   var context = null;
@@ -152,9 +156,16 @@
   /**
    * Decide, from a state transition, which cue (if any) to play. The
    * mapping is deliberately conservative:
-   *   GRACE                      → attention cue
-   *   DISTRACTED / FACE_MISSING  → distraction cue
-   *   FOCUSED / DOWNWARD_STUDY   → return cue, only after a distraction cue
+   *   GRACE                            → attention cue
+   *   DISTRACTED / FACE_MISSING / PHONE_USE → distraction cue
+   *   FOCUSED / DOWNWARD_STUDY         → return cue, but only after a real
+   *                                      away state was cued before
+   *
+   * GRACE itself is never an "away" state: it is the few seconds of
+   * unclassified time between focus and a verdict, and (Prompt 11) it is
+   * also what "Resume study" hands back to. Remembering the last real away
+   * state is what lets a phone-use episode earn its return cue even though
+   * the state passes through GRACE on the way back.
    */
   function handleChange(snapshot) {
     if (!snapshot) return;
@@ -167,7 +178,7 @@
     if (previous === null) return;   // first reading is not a transition
 
     if (state === 'grace') {
-      // A downward *candidate* is a legitimate notebook switch being timed,
+      // A downward *candidate* is a legitimate notebook posture being timed,
       // not a drift — it must never chirp at the user.
       if (snapshot.downwardCandidate) return;
       if (previous === 'focused' || previous === 'downward-study') {
@@ -176,14 +187,16 @@
       return;
     }
 
-    if (state === 'distracted' || state === 'face-missing') {
+    if (state === 'distracted' || state === 'face-missing' || state === 'phone-use') {
+      lastAway = state;
       play(KINDS.DISTRACTION);
       return;
     }
 
     if (state === 'focused' || state === 'downward-study') {
-      if (previous === 'distracted' || previous === 'face-missing') {
+      if (lastAway !== null) {
         play(KINDS.RETURN);
+        lastAway = null;
       }
     }
   }
@@ -229,6 +242,7 @@
     lastPlayed = { attention: 0, distraction: 0, return: 0 };
     lastKind = null;
     lastState = null;
+    lastAway = null;
     playedCount = 0;
   }
 

@@ -1,41 +1,53 @@
 /* =====================================================================
    FocusGuard — js/attentionMode.js
    Prompt 10.5: the Attention Mode control (Screen study ⇄ Notebook).
+   Prompt 11:  retired. Monitoring is automatic, so there is nothing left
+               for the user to choose.
 
-   This module owns *only* the interface for the attention mode. The
-   interpretation itself lives in js/distraction.js (setAttentionMode);
-   this file just lets the user choose it and keeps every control on the
-   page in agreement.
+   This module used to own the radio group that switched the attention
+   engine between "Screen study" and "Notebook / downward study". The new
+   rule is that FocusGuard reads the study posture *automatically*: facing
+   the laptop, reading a notebook and writing on paper are all studied by
+   the same camera pipeline (js/camera.js → js/faceDetection.js →
+   js/attention.js → js/distraction.js), with no switch to press.
+
+   So the file now does exactly one job: present that single automatic
+   mode, and stay compatible with anything that still asks for the old
+   API (js/sync.js, the stored `attention_mode` setting, the console).
 
    ---- DOM contract ----------------------------------------------------
-     input[type=radio][data-attention-mode]   value "screen" | "notebook"
-     [data-attention-switch="screen"|"notebook"]   quick-switch buttons
-     [data-attention-mode-help]    the one-line helper text (updated)
-     [data-attention-mode-status]  short label of the active mode
+     [data-attention-mode-status]   short label of the active mode
+     [data-attention-mode-help]     the one-line helper text
 
-   Several elements may carry the same attribute (Study Session, Focus
-   Mode, Settings) — they are all kept in sync.
+   Anything still exposing the legacy `[data-attention-mode]` radios,
+   `[data-attention-switch]` buttons or `[data-attention-quick-toggle]`
+   simply resolves to the one mode — the attributes are tolerated, not
+   required. See index.html: the selectors were replaced by a short
+   "Intelligent monitoring" note in Study Session, Focus Mode and Settings.
 
-   ---- What a switch does — and does not do ---------------------------
-   Switching mid-session is free: it never ends the session, never resets
-   the Pomodoro, the elapsed time, the Focus Score or the Focus Coins. It
-   only tells the attention engine how to read the head posture.
+   ---- What this never does -------------------------------------------
+   It never ends a session, never resets the Pomodoro, the elapsed time,
+   the Focus Score or the Focus Coins. It only labels how the engine reads
+   the head posture — and that reading is now always automatic.
 
    Console:
-     FocusGuard.attentionMode.set('notebook')
-     FocusGuard.attentionMode.get()
-     FocusGuard.attentionMode.toggle()
+     FocusGuard.attentionMode.get()            // always 'intelligent'
+     FocusGuard.attentionMode.help()
    ===================================================================== */
 
 (function (global) {
   'use strict';
 
-  var DEFAULT_MODE = 'screen';
+  /** The one monitoring mode. Kept in the settings schema for compatibility. */
+  var DEFAULT_MODE = 'intelligent';
 
   var HELP = {
-    screen: 'Best when you study mainly from the laptop screen.',
-    notebook: 'Allows focused downward posture while writing or reading on paper.',
+    intelligent: 'Automatic: FocusGuard reads your posture itself — laptop ' +
+      'screen, notebook or handwriting all count as studying. Phone use ' +
+      'during a session is counted as distracted.',
   };
+
+  var LABEL = 'Intelligent monitoring';
 
   var mode = DEFAULT_MODE;
   var bound = false;
@@ -50,10 +62,18 @@
     return (global.FocusGuard && global.FocusGuard[name]) || null;
   }
 
-  function label(text) {
+  /** The display label of the (single) mode. */
+  function label() {
     var flags = module('distraction');
-    if (flags && flags.MODE_LABELS && flags.MODE_LABELS[text]) return flags.MODE_LABELS[text];
-    return text === 'notebook' ? 'Notebook / downward study' : 'Screen study';
+    if (flags && flags.MODE_LABELS && flags.MODE_LABELS[mode]) {
+      return flags.MODE_LABELS[mode];
+    }
+    return LABEL;
+  }
+
+  /** The helper copy under the label. */
+  function help() {
+    return HELP[mode] || HELP[DEFAULT_MODE];
   }
 
   /* ---------- Reading / writing the mode ---------------------------- */
@@ -63,71 +83,51 @@
   }
 
   /**
-   * Set the mode. Updates the engine, every control on the page, and the
-   * helper text, then asks the settings layer to persist it. Touches no
-   * timer, session or score.
+   * Legacy setter. Monitoring is automatic, so there is nothing to switch:
+   * any requested value resolves to the one mode. The engine is told (a
+   * no-op there too) so an old console snippet cannot leave the page and
+   * the engine disagreeing.
    */
-  function set(next, options) {
-    var wanted = next === 'notebook' ? 'notebook' : 'screen';
-    mode = wanted;
+  function set() {
+    mode = DEFAULT_MODE;
 
     var distraction = module('distraction');
     if (distraction && typeof distraction.setAttentionMode === 'function') {
-      distraction.setAttentionMode(wanted);
+      distraction.setAttentionMode(mode);
     }
 
     renderControls();
-
-    if (!(options && options.silent)) persist();
     return mode;
   }
 
   function toggle() {
-    return set(mode === 'notebook' ? 'screen' : 'notebook');
-  }
-
-  /** Persist through js/sync.js (the settings row). Safe when unavailable. */
-  function persist() {
-    var sync = module('sync');
-    if (sync && typeof sync.saveSettingsSoon === 'function') sync.saveSettingsSoon();
+    return set();
   }
 
   /* ---------- Rendering --------------------------------------------- */
 
   function renderControls() {
-    each('[data-attention-mode]', function (el) {
-      // Works for radio inputs and anything else carrying the attribute.
-      if (el.type === 'checkbox') el.checked = mode === 'notebook';
-      else if ('checked' in el) el.checked = el.value === mode;
-      el.classList.toggle('is-active', el.value === mode);
-      if (el.hasAttribute('aria-checked')) {
-        el.setAttribute('aria-checked', el.value === mode ? 'true' : 'false');
-      }
-    });
-
-    each('[data-attention-switch]', function (el) {
-      el.classList.toggle('is-active', el.dataset.attentionSwitch === mode);
-      el.setAttribute('aria-pressed', el.dataset.attentionSwitch === mode ? 'true' : 'false');
-    });
-
-    each('[data-attention-mode-help]', function (el) {
-      el.textContent = HELP[mode];
+    // Tolerate a leftover legacy radio/checkbox, without depending on one.
+    // Scoped to inputs on purpose: the <html> element itself carries a
+    // data-attention-mode attribute for CSS, and must not be matched here.
+    each('input[data-attention-mode]', function (el) {
+      el.checked = true;
+      el.classList.add('is-active');
     });
 
     each('[data-attention-mode-status]', function (el) {
-      el.textContent = label(mode);
+      el.textContent = label();
     });
 
-    // The quick toggle button shows what you would switch *to*.
-    each('[data-attention-quick-toggle]', function (el) {
-      var other = mode === 'notebook' ? 'screen' : 'notebook';
-      el.textContent = label(other);
-      el.dataset.attentionTarget = other;
-      el.setAttribute('aria-label', 'Switch to ' + label(other));
+    each('[data-attention-mode-help]', function (el) {
+      el.textContent = help();
     });
 
     var root = document.documentElement;
-    if (root) root.dataset.attentionMode = mode;
+    if (root) {
+      root.dataset.attentionMode = mode;
+      root.dataset.monitoringMode = mode;
+    }
   }
 
   /* ---------- Wiring ------------------------------------------------ */
@@ -136,41 +136,26 @@
     if (bound) return;
     bound = true;
 
-    each('[data-attention-mode]', function (el) {
-      var handler = function () {
-        if ('checked' in el && !el.checked) return;
-        set(el.value);
-      };
-      el.addEventListener('change', handler);
-    });
-
-    each('[data-attention-switch]', function (el) {
-      el.addEventListener('click', function () {
-        set(el.dataset.attentionSwitch);
-      });
-    });
-
-    each('[data-attention-quick-toggle]', function (el) {
-      el.addEventListener('click', function () { toggle(); });
-    });
-
-    // The distraction engine may already know a mode (e.g. restored by
-    // time the settings were applied) — adopt it without re-persisting.
+    // Adopt whatever mode the engine is already running (it is the single
+    // automatic one), then paint every label once.
     var distraction = module('distraction');
     if (distraction && typeof distraction.getAttentionMode === 'function') {
       var current = distraction.getAttentionMode();
-      if (current && current !== mode) mode = current;
+      if (current) mode = current;
     }
-    renderControls();
+    set();
   }
 
-  /** Called by js/sync.js after stored settings are applied. */
-  function applyFromSettings(value) {
-    var wanted = value === 'notebook' ? 'notebook' : 'screen';
-    mode = wanted;
+  /**
+   * Called by js/sync.js after stored settings are applied. Older rows may
+   * still hold 'screen' or 'notebook' — both now mean the same automatic
+   * mode, so nothing needs migrating by hand.
+   */
+  function applyFromSettings() {
+    mode = DEFAULT_MODE;
     var distraction = module('distraction');
     if (distraction && typeof distraction.setAttentionMode === 'function') {
-      distraction.setAttentionMode(wanted);
+      distraction.setAttentionMode(mode);
     }
     renderControls();
     return mode;
@@ -186,6 +171,7 @@
     applyFromSettings: applyFromSettings,
     render: renderControls,
     label: label,
+    help: help,
   };
 
   global.FocusGuardAttentionMode = api;

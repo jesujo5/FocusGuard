@@ -1895,59 +1895,72 @@ body.is-fullscreen { overflow: hidden; }
 }
 
 /* =====================================================================
-   Section 20 — Attention mode + Mini Focus Window (Prompt 10.5)
+   Section 20 — Intelligent monitoring + Mini Focus Window
+   (Prompt 10.5 attention mode → Prompt 11 automatic monitoring)
    ===================================================================== */
 
-/* --- Attention mode control (Study Session / Focus Mode / Settings) ----- */
-.attention-mode {
+/* --- Monitoring note (Study Session / Focus Mode / Settings) ----------
+   Prompt 11: there is no Screen/Notebook choice any more, so the old
+   radiogroup became a short, read-only note. */
+.monitoring-note {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-.attention-mode__head {
+.monitoring-note__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
 }
-.attention-mode__options { display: flex; flex-wrap: wrap; gap: 8px; }
-.attention-mode__option {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 11px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: #1b1518;
-  font-size: 13px;
-  cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-.attention-mode__option:hover { border-color: var(--accent); }
-.attention-mode__option input { accent-color: var(--accent); margin: 0; }
-.attention-mode__option:has(input:checked) {
-  border-color: var(--accent);
-  background: #2a1619;
-  color: #fff;
-}
-.attention-mode__option:has(input:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.attention-mode [data-attention-mode-help] { margin: 8px 0 0; }
+.monitoring-note [data-attention-mode-help] { margin: 0; }
 
-/* The compact quick-switch shown inside Focus Mode. */
-.attention-mode--quick {
+/* The compact note shown inside Focus Mode. */
+.monitoring-note--quick {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
 }
-.attention-mode--quick .attention-mode__head { justify-content: center; }
-.attention-mode--quick .attention-mode__options { justify-content: center; }
-.attention-mode--quick .btn { margin-top: 2px; }
-.attention-mode--quick [data-attention-mode-help] { text-align: center; max-width: 34ch; }
+.monitoring-note--quick .monitoring-note__head { justify-content: center; }
+.monitoring-note--quick [data-attention-mode-help] { text-align: center; max-width: 34ch; }
+
+/* --- Phone override: "Using phone" / "Resume study" (Prompt 11) -------
+   A declared distraction, never a detected one. */
+.phone-override {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.phone-override__status {
+  margin: 0;
+  font-size: 11.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.phone-override__status[data-phone-state="phone-use"] { color: #ff9aa6; }
+.phone-override__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.phone-override__mark {
+  border-color: #7a2430;
+  background: #3a1116;
+  color: #ffd9dd;
+}
+.phone-override__mark:hover { background: #4a161c; }
+.phone-override__resume {
+  border-color: #2f6b41;
+  background: #17331f;
+  color: #c9f7d6;
+}
+.phone-override__resume:hover { background: #1d3a24; }
+.phone-override [data-phone-detail] { margin: 0; }
+/* Explicit, because .btn gives each button its own author display. */
+.phone-override__mark[hidden] { display: none; }
+.phone-override__resume[hidden] { display: none; }
 
 /* --- Mini Focus Window ------------------------------------------------- */
 .mini-win-host-anchor { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
